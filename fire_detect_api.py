@@ -35,7 +35,7 @@ def video_preprocess(path, out1, out2):
 
 def localization2(path):
     # 一次性输入两个视频的路径
-    dict_, dict_2 = detect2(path)
+    dict_, dict_2 = detect2(path) # 返回 两个视频的字典
     dict1, dict_all1 = fire_info(dict_)
     dict2, dict_all2 = fire_info(dict_2)
     return dict1, dict_all1, dict2, dict_all2
@@ -220,8 +220,8 @@ if __name__=='__main__':
     out1 = root+'left.mp4'
     out2 = root+'right.mp4'
 
-    print('▅'*80,'Step1： Video Preprocess')
-    video_preprocess(path, out1, out2)
+    # print('▅'*80,'Step1： Video Preprocess')
+    # video_preprocess(path, out1, out2)
 
     print('▅'*80,'Step2： Finding Fire by YOLO')
     dict1, dict_all1, dict2, dict_all2 = localization2(out1 + ',' + out2)

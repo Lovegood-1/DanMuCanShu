@@ -226,3 +226,131 @@ class ModelEMA:
     def update_attr(self, model, include=(), exclude=('process_group', 'reducer')):
         # Update EMA attributes
         copy_attr(self.ema, model, include, exclude)
+
+
+import queue
+
+def build_multi_queue(seconds, fps, names = ['rgb', 'left', 'right']):
+    """
+    
+    """
+    q_d = {}
+    for name in names:
+        q_d[name] = build_queue(seconds, fps)
+    return q_d
+
+
+def build_queue(seconds, fps):
+    """
+    This F use in  saving a video of the period prior to a certain moment.
+ 
+    """
+    lengh_ = seconds * fps * 2
+    q = queue.Queue(int(lengh_))
+    return q
+
+def save_muitl_frame_to_q_k(q_k, frames, key, names = ['rgb_video', 'left', 'right']):
+    for name in names:
+        q = save_frame_to_q(q_k, frames[name], key, name)
+        q_k[name] = q
+
+    return q_k
+
+
+def save_frame_to_q(q, frame, key, name):
+    """save to queue. This F use in  saving a video of the period prior to a certain moment.
+    if is full?
+    |- Ture : drop the 1st and put 
+    |- False: put 
+    """
+    q_k = q[key][name]
+    if q_k.qsize() < q_k.maxsize:
+        q_k.put(frame)
+    else:
+        q_k.get()
+        q_k.put(frame)
+    q[key][name] = q_k
+    return q
+
+import cv2
+def save_multi_video(q,fourcc, FPS, size, names = ['rgb', 'left', 'right'], device = 'usb', save_video_path = 'video'):
+
+    if device != 'OTA':
+        out_ = { i: cv2.VideoWriter(os.path.join(save_video_path,'camera_%s.avi'%i), fourcc, FPS, (size[0]//2,size[1]))    for i in names }
+    else:
+        out_ = { i: cv2.VideoWriter('camera_%s.avi'%i, fourcc, FPS, size) if 'rgb' in i else  cv2.VideoWriter('camera_%s.avi'%i, fourcc, FPS, (1280,720), isColor=False)  for i in names }
+    
+    for name in names:
+        while True:
+            if q['before'][name].qsize()>0:
+                out_[name].write(q['before'][name].get())
+            else:
+                break
+        while True:
+            if q['after'][name].qsize()>0:
+                out_[name].write(q['after'][name].get())
+            else:
+                break        
+        out_[name].release()
+
+class Queue_list(object):
+    def __init__(self, maxlen):               #初始化空队列
+        self.list = []
+        self.maxlen = maxlen
+ 
+    def _put(self,item):             #入队
+        self.list.append(item)       #尾进
+        # self.list.insert(0,item)   #头进
+ 
+    def get(self):                   #出队
+        # return self.list.pop(0)    #头出
+         return self.list.pop(0)      #尾出
+ 
+    def is_empty(self):              # 判断是否为空
+        return self.list == []
+ 
+    def qsize(self):                  # 判断长度
+        return len(self.list)
+ 
+    def __str__(self):               #遍历所有队列当中的队员
+        return "队员(%r)" % self.list
+
+    def auto_put(self, element):
+        """
+        add a element into the top of queue as usual.
+        But if it is full, delete the first one and add the final
+        """
+        if len(self.list) < self.maxlen:
+            self._put(element)
+        else:
+            self.get()
+            self._put(element)
+
+class AutoQueue:
+    def __init__(self, maxitem) -> None:
+        import queue
+        self.q = queue.Queue(int(maxitem))
+
+    def auto_put(self, element):
+        """
+        add a element into the top of queue as usual.
+        But if it is full, delete the first one and add the final
+        """
+        if self.q.qsize() < self.q.maxsize:
+            self.q.put(element)
+        else:
+            self.q.get()
+            self.q.put(element)
+
+def event_happend(q_list):
+
+    happend = True
+    for frame in q_list.list:
+        if len(frame) == 0:
+            happend = False
+    return happend
+
+
+if __name__ == "__main__":
+    q = Queue_list(4)
+    a = 1

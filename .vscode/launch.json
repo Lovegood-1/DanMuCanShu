@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "--source", "D:\\files\\xihe_data\\to_test_capture\\157.mp4", "--weights", "best.pt", "--save-txt"
+                "--source", "0", "--weights", "best.pt",
             ]
         }
     ]
