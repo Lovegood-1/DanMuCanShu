@@ -259,12 +259,12 @@ class LoadStreams:  # multiple IP or RTSP cameras
         n = len(sources)
         self.imgs = [None] * n
         self.sources = sources
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
         self.fourcc = cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')
-        cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
-        cap.set(cv2.CAP_PROP_FPS, 60)
-        cap.set(3, 1280)  # width=1920
-        cap.set(4, 480)  # height=1080
+        # cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) # 读取流不需要set
+        # cap.set(cv2.CAP_PROP_FPS, 60)
+        # cap.set(3, 1280)  # width=1920
+        # cap.set(4, 480)  # height=1080
         
         assert cap.isOpened(), 'Failed to open %s' % s
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -284,11 +284,11 @@ class LoadStreams:  # multiple IP or RTSP cameras
         for i, s in enumerate(sources):
             # Start the thread to read frames from the video stream
             print('%g/%g: %s... ' % (i + 1, n, s), end='')
-            cap = cv2.VideoCapture(0 if s == '0' else s)
-            cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
-            cap.set(cv2.CAP_PROP_FPS, 50)
-            cap.set(3, 1280)  # width=1920
-            cap.set(4, 480)  # height=1080
+            cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
+            # cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
+            # cap.set(cv2.CAP_PROP_FPS, 50)
+            # cap.set(3, 1280)  # width=1920
+            # cap.set(4, 480)  # height=1080
             assert cap.isOpened(), 'Failed to open %s' % s
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

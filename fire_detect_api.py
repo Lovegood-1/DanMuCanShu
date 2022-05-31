@@ -231,7 +231,10 @@ if __name__=='__main__':
     # 直播检测，保存视频
     from detect_OTA import detect  
     # opt = get_opt()
-    # detect()
+    detect()
+
+    # 矫正视频
+    
 
     root = 'video\\'
 
