@@ -1,0 +1,145 @@
+"""
+建立一个用于矫正保存视频的对象
+"""
+
+import cv2 
+import os.path as osp
+
+import numpy as np
+
+
+class video_rectify:
+    def __init__(self, left, right, stereoconfig) -> None:
+        from cv2 import CALIB_ZERO_DISPARITY
+        # check the fps and hw of the video
+        self.info_dict = self.get_video_info(left) 
+        assert  self.info_dict == self.get_video_info(right)
+
+        # get the intrin 
+        self.config = stereoconfig
+        self.getRectifyTransform()
+        # # 获取用于畸变校正和立体校正的映射矩阵以及用于计算像素空间坐标的重投影矩阵
+
+
+
+    def rectify_single_image(self, img, left_or_right):
+        if left_or_right == 'left':
+            rectifyed_img1 = cv2.remap(img, self.map1x, self.map1y, cv2.INTER_AREA)
+        elif left_or_right == 'right':
+            rectifyed_img1 = cv2.remap(img, self.map2x, self.map2y, cv2.INTER_AREA)
+        else:
+            assert ValueError
+        return rectifyed_img1
+
+    def rectify_video(self, video_path_l, left_or_right):
+        # 读取视频
+        assert osp.isfile(video_path_l) == True
+        cap = cv2.VideoCapture(video_path_l)
+        save_p = video_path_l.split('.')[0] + 'rectify' + '.' + video_path_l.split('.')[-1]
+        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        
+        count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        print('w: {}, h: {}, count: {}, fps: {}'.format(w, h, count, fps))
+
+        # 视频保存
+        # fourcc = cv2.VideoWriter_fourcc('P', 'I', 'M', '1')
+        # fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        # 视频编码格式
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        print('save to >>>',save_p)
+        out = cv2.VideoWriter(save_p, fourcc, fps, (int(w), int(h)), True)
+        # 获取矫正后的图片
+        while cap.isOpened():
+            ret, frame = cap.read()
+            # 调用本地摄像头时，需要左右翻转一下，若是视频文件则不需要翻转
+            # frame = cv2.flip(frame, 1)
+            if not ret:
+                break
+            rec_frame = self.rectify_single_image(frame, left_or_right)
+            cv2.imshow('a',np.concatenate((frame, rec_frame), axis = 1))
+            if cv2.waitKey(1) == ord('q'):  # q to quit
+                raise StopIteration
+            out.write(rec_frame)
+            # # 保存
+        out.release()
+        pass
+    def rectify_video_double(self, video_path_l, left_or_right, video_path_r, right):
+        # 读取视频
+        assert osp.isfile(video_path_l) == True
+        cap_l = cv2.VideoCapture(video_path_l)
+        save_p = video_path_l.split('.')[0] + 'rectify_all_' + '.' + video_path_l.split('.')[-1]
+        w = cap_l.get(cv2.CAP_PROP_FRAME_WIDTH)
+        h = cap_l.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        count = cap_l.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = cap_l.get(cv2.CAP_PROP_FPS)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
+        # out_l = cv2.VideoWriter(save_p, fourcc, fps, (int(w), int(h)), True)
+
+        assert osp.isfile(video_path_r) == True
+        cap_r = cv2.VideoCapture(video_path_r)
+        save_p = video_path_r.split('.')[0] + 'rectify_all_' + '.' + video_path_r.split('.')[-1]
+        w = cap_r.get(cv2.CAP_PROP_FRAME_WIDTH)
+        h = cap_r.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        count = cap_r.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = cap_r.get(cv2.CAP_PROP_FPS)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        print('save to >>>',save_p)
+        # out_r = cv2.VideoWriter(save_p, fourcc, fps, (int(w), int(h)), True)
+        out = cv2.VideoWriter(save_p, fourcc, fps, (int(w) * 2, int(h)))
+
+
+        # 获取矫正后的图片
+        while cap_l.isOpened() and cap_r.isOpened():
+            ret_l, frame_l = cap_l.read()
+            ret_r, frame_r = cap_r.read()
+            # 调用本地摄像头时，需要左右翻转一下，若是视频文件则不需要翻转
+            # frame = cv2.flip(frame, 1)
+            if not ret_l:
+                break
+            rec_frame_l = self.rectify_single_image(frame_l, 'left')
+            rec_frame_r = self.rectify_single_image(frame_r, 'right')
+            cv2.imshow('a',np.concatenate((frame_l, frame_r), axis = 1))
+            cv2.imshow('rec',np.concatenate((rec_frame_l, rec_frame_r), axis = 1))
+            if cv2.waitKey(1) == ord('q'):  # q to quit
+                raise StopIteration
+            out.write(np.concatenate((rec_frame_l, rec_frame_r), axis = 1))
+            # # 保存
+        out.release()
+        pass
+    def getRectifyTransform(self):
+        # 读取内参和外参
+        left_K = self.config.cam_matrix_left
+        right_K = self.config.cam_matrix_right
+        left_distortion = self.config.distortion_l
+        right_distortion = self.config.distortion_r
+        R = self.config.R
+        T = self.config.T
+        # R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(left_K, left_distortion, right_K, right_distortion, 
+        #                                             (self.info_dict['W'], self.info_dict['H']), R, T, alpha=1, flags=CALIB_ZERO_DISPARITY)
+        R1, R2, P1, P2, self.Q, roi1, roi2 = cv2.stereoRectify(left_K, left_distortion, right_K, right_distortion, 
+                                                (self.info_dict['W'], self.info_dict['H']), R, T, alpha=0) # 带有黑边
+        self.map1x, self.map1y = cv2.initUndistortRectifyMap(left_K, left_distortion, R1, P1, (self.info_dict['W'], self.info_dict['H']), cv2.CV_32FC1)
+        self.map2x, self.map2y = cv2.initUndistortRectifyMap(right_K, right_distortion, R2, P2, (self.info_dict['W'], self.info_dict['H']), cv2.CV_32FC1)
+        
+    
+    def get_video_info(self, video_path):
+
+        assert osp.isfile(video_path) == True
+        cap = cv2.VideoCapture(video_path)
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        info_dict = {
+            'W': w,
+            'H': h,
+            'count': count,
+            'fps': fps,
+        }
+        cap.release()
+        return info_dict

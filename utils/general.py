@@ -1269,3 +1269,165 @@ def plot_results(start=0, stop=0, bucket='', id=(), labels=(),
     fig.tight_layout()
     ax[1].legend()
     fig.savefig(Path(save_dir) / 'results.png', dpi=200)
+
+
+class WebCamera:
+    def __init__(self) -> None:
+        pass
+
+    def prepare(self):
+        """
+        Get frame need two steps: prepare, get_frame.
+        This is the first step called STEP_one.
+        STEP_one contain:
+        --------
+        1. open device
+        2. set pipeline
+        3. Create a receive queue for each stream
+
+        ---------
+        """
+        self._open_device() # 1. open device
+        self._set_pipeline() # 2. set pipeline
+
+        print("Starting pipeline")
+        self.device.startPipeline(self.pipeline) # tell device the pipeline
+
+        # 3. Create a receive queue for each stream
+        self.q_list = []
+        for s in self.streams:
+            q = self.device.getOutputQueue(s, 8, blocking=False)
+            self.q_list.append(q)
+        pass
+
+    def ger_frame(self):
+        dict_ = {}
+        for q in self.q_list:
+            name  = q.getName()
+            image = q.get() 
+            if name in self.streams: 
+                frame = self._convert_to_cv2_frame(name, image) 
+                dict_[name] = frame
+                
+        return dict_
+    def _set_pipeline(self, out_rectified = False, out_RGB = False):
+
+        self.pipeline = dai.Pipeline()
+
+        cam_left      = self.pipeline.create(dai.node.MonoCamera)
+        cam_right     = self.pipeline.create(dai.node.MonoCamera)
+        # stereo        = self.pipeline.create(dai.node.StereoDepth)
+        cam           = self.pipeline.create(dai.node.ColorCamera)
+
+        xout_left         = self.pipeline.create(dai.node.XLinkOut)
+        xout_right        = self.pipeline.create(dai.node.XLinkOut)
+        xout_video        = self.pipeline.create(dai.node.XLinkOut)
+        if out_rectified:
+            xout_rectif_left  = self.pipeline.create(dai.node.XLinkOut)
+            xout_rectif_right = self.pipeline.create(dai.node.XLinkOut)
+        
+        cam.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+        cam.setInterleaved(False)
+        cam.setBoardSocket(dai.CameraBoardSocket.RGB)        
+
+        cam_left .setBoardSocket(dai.CameraBoardSocket.LEFT)
+        cam_right.setBoardSocket(dai.CameraBoardSocket.RIGHT)
+        for cam_ in [cam_left, cam_right]: # Common config
+            cam_.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+        pass
+        xout_left .setStreamName('left')
+        xout_right.setStreamName('right')
+        xout_video  .setStreamName('rgb_video')
+        cam_left .out.link(xout_left.input)
+        cam_right.out.link(xout_right.input)
+        cam.video  .link(xout_video.input)
+
+        streams = ['left', 'right', 'rgb_video']
+        self.streams = streams
+    def _set_pipeline_01(self, out_rectified = False, out_RGB = True):
+
+        self.pipeline = dai.Pipeline()
+
+        cam_left      = self.pipeline.create(dai.node.MonoCamera)
+        cam_right     = self.pipeline.create(dai.node.MonoCamera)
+        stereo        = self.pipeline.create(dai.node.StereoDepth)
+        cam           = self.pipeline.create(dai.node.ColorCamera)
+
+        xout_left         = self.pipeline.create(dai.node.XLinkOut)
+        xout_right        = self.pipeline.create(dai.node.XLinkOut)
+        xout_depth        = self.pipeline.create(dai.node.XLinkOut)
+        # xout_disparity    = self.pipeline.create(dai.node.XLinkOut)
+        if out_rectified:
+            xout_rectif_left  = self.pipeline.create(dai.node.XLinkOut)
+            xout_rectif_right = self.pipeline.create(dai.node.XLinkOut)
+        if out_RGB  :
+            xout_video      = self.pipeline.create(dai.node.XLinkOut)
+
+        cam_left .setBoardSocket(dai.CameraBoardSocket.LEFT)
+        cam_right.setBoardSocket(dai.CameraBoardSocket.RIGHT)
+        for cam_ in [cam_left, cam_right]: # Common config
+            cam_.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+        pass
+        stereo.initialConfig.setConfidenceThreshold(200)
+        stereo.setRectifyEdgeFillColor(0) # Black, to better see the cutout
+        stereo.initialConfig.setMedianFilter(dai.StereoDepthProperties.MedianFilter.KERNEL_7x7) # KERNEL_7x7 default
+        stereo.setLeftRightCheck(True)
+        stereo.setExtendedDisparity(False)
+        stereo.setSubpixel(False)
+
+        xout_left        .setStreamName('left')
+        xout_right       .setStreamName('right')
+        xout_depth       .setStreamName('depth')
+        # xout_disparity   .setStreamName('disparity')
+        if out_rectified:
+            xout_rectif_left .setStreamName('rectified_left')
+            xout_rectif_right.setStreamName('rectified_right')
+        if out_RGB:
+            xout_video       .setStreamName('rgb_video')
+
+        cam_left .out        .link(stereo.left)
+        cam_right.out        .link(stereo.right)
+        stereo.syncedLeft    .link(xout_left.input)
+        stereo.syncedRight   .link(xout_right.input)
+        stereo.depth         .link(xout_depth.input)
+        # stereo.disparity     .link(xout_disparity.input)
+        if out_RGB:
+            cam.video            .link(xout_video.input)
+        if out_rectified:
+            stereo.rectifiedLeft .link(xout_rectif_left.input)
+            stereo.rectifiedRight.link(xout_rectif_right.input)
+
+        streams = ['left', 'right']
+        if out_rectified:
+            streams.extend(['rectified_left', 'rectified_right'])
+        if out_RGB:
+            streams.append('rgb_video')
+        streams.extend(['depth'])
+        self.streams = streams
+
+
+    def _open_device(self):
+        self.device = dai.Device() # TODO
+        pass
+
+    def _convert_to_cv2_frame(self, name, image):
+
+        data, w, h = image.getData(), image.getWidth(), image.getHeight()
+        # TODO check image frame type instead of name
+        if name == 'rgb_preview':
+            frame = np.array(data).reshape((3, h, w)).transpose(1, 2, 0).astype(np.uint8)
+        elif name == 'rgb_video': # YUV NV12
+            yuv = np.array(data).reshape((h * 3 // 2, w)).astype(np.uint8)
+            frame = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_NV12)
+        elif name == 'depth':
+            # TODO: this contains FP16 with (lrcheck or extended or subpixel)
+            frame = np.array(data).astype(np.uint8).view(np.uint16).reshape((h, w))
+        elif name == 'disparity':
+            raise ValueError # do not supper disparty
+
+        else: # mono streams / single channel
+            frame = np.array(data).reshape((h, w)).astype(np.uint8)
+            if name == 'rectified_right':
+                raise ValueError # do not supper disparty
+        return frame
+

@@ -3,15 +3,28 @@ import os
 import time
 import logging
 from copy import deepcopy
+import numpy as np
 
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
+# from utils.general import xywh2xyxy
+import  calibration.param as stereoconfig_040_2
+from utils.video_rectify import video_rectify
+import random
+
 
 logger = logging.getLogger(__name__)
-
+def xywh2xyxy(x):
+    # Convert nx4 boxes from [x, y, w, h] to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
+    y = torch.zeros_like(x) if isinstance(x, torch.Tensor) else np.zeros_like(x)
+    y[:, 0] = x[:, 0] - x[:, 2] / 2  # top left x
+    y[:, 1] = x[:, 1] - x[:, 3] / 2  # top left y
+    y[:, 2] = x[:, 0] + x[:, 2] / 2  # bottom right x
+    y[:, 3] = x[:, 1] + x[:, 3] / 2  # bottom right y
+    return y
 def init_seeds(seed=0):
     torch.manual_seed(seed)
 
@@ -230,13 +243,17 @@ class ModelEMA:
 
 import queue
 
-def build_multi_queue(seconds, fps, names = ['rgb', 'left', 'right']):
+def build_multi_queue(seconds, fps, names = ['rgb', 'left', 'right'], type = 'normal'):
     """
     
     """
+    if type == 'list':
+        _build_queue = build_list_queue
+    else:
+        _build_queue = build_queue
     q_d = {}
     for name in names:
-        q_d[name] = build_queue(seconds, fps)
+        q_d[name] = _build_queue(seconds, fps)
     return q_d
 
 
@@ -248,6 +265,16 @@ def build_queue(seconds, fps):
     lengh_ = seconds * fps * 2
     q = queue.Queue(int(lengh_))
     return q
+
+def build_list_queue(seconds, fps):
+    """
+    This F use in  saving a serise of bbox .
+ 
+    """
+    lengh_ = seconds * fps * 2
+    q = Queue_list(int(lengh_))
+    return q
+
 
 def save_muitl_frame_to_q_k(q_k, frames, key, names = ['rgb_video', 'left', 'right']):
     for name in names:
@@ -349,6 +376,120 @@ def event_happend(q_list):
         if len(frame) == 0:
             happend = False
     return happend
+
+
+def cal_xyz_from_uv(x,y,disp,Q):
+    """
+    从像素坐标计算三维坐标
+    """
+    deep =  disp[int(y), int(x)] #
+    vec_tmp = np.array([[x,y,deep,1]]).T
+    vec_tmp = Q@ vec_tmp
+    vec_tmp /= vec_tmp[3]
+    return vec_tmp
+
+def cal_distance(p1,p2,vertical = False):
+    return math.sqrt(math.pow(p2[0] - p1[0],2) + math.pow(p2[1] - p1[1],2) + math.pow(p2[2] - p1[2],2))
+
+
+
+def show_point(uv_list,img):
+    img = img.copy()
+    index = 0
+    for i in uv_list:
+        cv2.circle(img, (int(i[1]), int(i[2])),1,(0,0,255),-1)
+        print(int(i[1]), int(i[2]))
+        index += 1
+        cv2.putText(img,"%s"%str(index), (int(i[1]), int(i[2])), cv2.FONT_HERSHEY_SIMPLEX, 0.7,(255,205,100), 1, cv2.LINE_AA)
+    return img
+
+def plot_one_box(x, img, color=None, label=None, line_thickness=None):
+    # Plots one bounding box on image img
+    tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
+    color = color or [random.randint(0, 255) for _ in range(3)]
+    c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
+    cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
+    if label:
+        tf = max(tl - 1, 1)  # font thickness
+        t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
+        c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
+        cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+def get_max_bbox(path, dict_):
+    path_l = path.strip().split(',')[0]
+    path_r = path.strip().split(',')[-1]
+    sorted_results = sorted(dict_.items(), key = lambda kv:(kv[1], kv[0]), reverse=True)
+    Max_area_bbox_index = sorted_results[1][0]
+    # Max_area_bbox = sorted_results[1][-1][0].strip().split(' ')[1:]
+    xyhw = [float(i) for i in  sorted_results[1][-1][0].strip().split(' ')[1:] ]
+    xyxy=xywh2xyxy(torch.tensor([xyhw]))
+    cap = cv2.VideoCapture(path_l)
+    
+    cap.set(cv2.CAP_PROP_POS_FRAMES,Max_area_bbox_index)
+    a, imgl=cap.read()
+    gn = torch.tensor(imgl.shape)[[1, 0, 1, 0]]
+    # colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(2)]
+    xy = [i for i in  xyxy[0]]
+    gn_ = [i for i in  gn]
+    a_ = xyxy * gn
+    colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(2)]
+    plot_one_box([i for i in  a_[0]], imgl, label=0, color=colors[int(0)], line_thickness=3)
+    cv2.imshow('b', imgl) # 展示二阶段火焰检测的bbox
+    cap.release()
+    cap = cv2.VideoCapture(path_r)
+    cap.set(cv2.CAP_PROP_POS_FRAMES,Max_area_bbox_index)
+    a, imgr=cap.read()
+    cap.release()
+
+
+    left_video = r'video\camera_left.avi'
+    right_video = r'video\camera_right.avi'
+    config = stereoconfig_040_2.stereoCamera()
+    Video = video_rectify(left_video, right_video, config)
+
+
+
+    from utils.estimate_disparty import Estimate_disparty
+    # imgl = Max_file_img['img']['left']
+    # imgr = Max_file_img['img']['right']
+    bbox = np.array(a_).reshape(2,-1)
+    EstimateDisparty =  Estimate_disparty()
+    # imgl = Video.rectify_single_image(imgl, 'left')
+    # imgr = Video.rectify_single_image(imgr, 'right')
+    disp = EstimateDisparty.calculate_disparty(imgl, imgr)
+    points_3d = cv2.reprojectImageTo3D(disp, Video.Q)
+    uv_point, H_W = EstimateDisparty.get_object_xy(bbox = bbox, disp = disp, Q = Video.Q)
+    img_show = show_point(uv_point, disp)# 展示上下左右点
+    # img_show = img_show * 0.6 + 0.4 *cv2.applyColorMap(disp.astype(np.uint8))
+    cv2.imshow('l_r',  np.concatenate((imgl, imgr), axis = 1))
+    cv2.imshow("disparity", img_show.astype(np.uint8))
+    return uv_point, H_W
+
+
+def show_video(video_path, window_name):
+    frame_counter = 0
+    video_path = video_path.split('.')[0] + '_results.mp4'
+    assert os.path.isfile(video_path)
+    cap = cv2.VideoCapture(video_path)
+    play_times = 0
+    # 2.循环读取图片
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            cv2.imshow(window_name, frame)
+        else:
+            cap = cv2.VideoCapture(video_path)
+            play_times += 1
+            if play_times > 2:
+                print("视频播放完成！")
+                break
+
+        # 退出播放
+        key = cv2.waitKey(25)
+        if key == 27:  # 按键esc
+            break
+ 
 
 
 if __name__ == "__main__":

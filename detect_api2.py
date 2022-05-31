@@ -13,7 +13,7 @@ from numpy import random
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
 from utils.general import (
-    build_targets, check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
+    build_targets, check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, xywh2xyxy, plot_one_box, strip_optimizer)
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 """
 创建时间：20211202
@@ -22,7 +22,7 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 主要从 detect.py 复制过来
 """
-def detect2(path_video = "inference\\images\\2.mp4,inference\\images\\1.mp4" ,save_img=False):
+def detect2(path_video = "inference\\images\\2.mp4,inference\\images\\1.mp4" ,save_img=True):
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='yolov5s.pt', help='model.pt path(s)')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
@@ -137,6 +137,8 @@ def detect2(path_video = "inference\\images\\2.mp4,inference\\images\\1.mp4" ,sa
 
                 # Write results
                 for *xyxy, conf, cls in det:
+                    if cls  != 0:
+                        continue
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         if dataset.frame in dict_[dataset.count]:
@@ -190,6 +192,9 @@ def detect2(path_video = "inference\\images\\2.mp4,inference\\images\\1.mp4" ,sa
     print('Done. (%.3fs)' % (time.time() - t0))
     return dict_[0], dict_[1]
 
+def get_max_bbox(dict_):
+    pass
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -215,7 +220,35 @@ if __name__ == '__main__':
                 detect2()
                 strip_optimizer(opt.weights)
         else:
-            dict_ = detect2()
+            dict_, dict_2 = detect2("video\\camera_leftrectify.avi,video\\camera_rightrectify.avi")
+            # Max_area_bbox = -1
+            # Max_area_bbox_index = -1
+            # d = dict_
+            # new_d_area = {}
+            # for num_frame in d:
+            #     bbox_list = d[118][0].strip().split(' ')[1:]
+            #     bbox =  [float(i) for i in bbox_list]
+            #     new_d_area[num_frame] = bbox[2] * bbox[3]
+            #     if bbox[2] * bbox[3] > Max_area_bbox:
+            #         Max_area_bbox = bbox[2] * bbox[3]
+            #         Max_area_bbox_index = num_frame
+    sorted_results = sorted(dict_.items(), key = lambda kv:(kv[1], kv[0]), reverse=True)
+    Max_area_bbox_index = sorted_results[1][0]
+    # Max_area_bbox = sorted_results[1][-1][0].strip().split(' ')[1:]
+    xyhw = [float(i) for i in  sorted_results[1][-1][0].strip().split(' ')[1:] ]
+    xyxy=xywh2xyxy(torch.tensor([xyhw]))
+    cap = cv2.VideoCapture('video\\camera_leftrectify.avi')
+    
+    cap.set(cv2.CAP_PROP_POS_FRAMES,Max_area_bbox_index)
+    a,b=cap.read()
+    gn = torch.tensor(b.shape)[[1, 0, 1, 0]]
+    colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(2)]
+    xy = [i for i in  xyxy[0]]
+    gn_ = [i for i in  gn]
+    a_ = xyxy * gn
+    plot_one_box([i for i in  a_[0]], b, label=0, color=colors[int(0)], line_thickness=3)
+    cv2.imshow('b', b)
+    cap.release()
     
     a = 1
     

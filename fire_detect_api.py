@@ -6,7 +6,9 @@ import cv2
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import os
-
+import time
+from utils.torch_utils import get_max_bbox, show_video
+# os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 def video_preprocess(path, out1, out2):
     # 将双目相机拍摄的视频裁切开，处理完之后进行保存
@@ -17,7 +19,7 @@ def video_preprocess(path, out1, out2):
     h,w,c = frame.shape
 
     fps=60
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+    fourcc = cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')
     videoWriter1 = cv2.VideoWriter(out1, fourcc, fps, (int(frame.shape[1]/2), frame.shape[0]), True)
     videoWriter2 = cv2.VideoWriter(out2, fourcc, fps, (int(frame.shape[1]/2), frame.shape[0]), True)
 
@@ -35,10 +37,17 @@ def video_preprocess(path, out1, out2):
 
 def localization2(path):
     # 一次性输入两个视频的路径
+    """
+    return 
+        HW: 目标的高宽
+    """
     dict_, dict_2 = detect2(path) # 返回 两个视频的字典
-    dict1, dict_all1 = fire_info(dict_)
+    dict1, dict_all1 = fire_info(dict_) # 第一帧的索引
     dict2, dict_all2 = fire_info(dict_2)
-    return dict1, dict_all1, dict2, dict_all2
+    HW = 0
+    # uv, HW =  get_max_bbox(path, dict_)
+    
+    return dict1, dict_all1, dict2, dict_all2, HW
 
 
 def fire_info(dict_):
@@ -214,17 +223,27 @@ def compute_FireSize_DDSpeed_Angle(fire_range1, fire_range2,
 
 if __name__=='__main__':
 
+    # 初始化窗口
+    img = cv2.imread('1.png')
+    window_name= '0'
+    cv2.imshow(window_name,img)
+
+    # 直播检测，保存视频
+    from detect_OTA import detect  
+    # opt = get_opt()
+    # detect()
+
     root = 'video\\'
 
-    path = root+'double.mp4'
-    out1 = root+'left.mp4'
-    out2 = root+'right.mp4'
+    path = root+'camera_rgb_double.avi'
+    out1 = root+'camera_leftrectify.avi'
+    out2 = root+'camera_rightrectify.avi'
 
-    # print('▅'*80,'Step1： Video Preprocess')
-    # video_preprocess(path, out1, out2)
+    print('▅'*80,'Step1： Video Preprocess')
+    video_preprocess(path, out1, out2)
 
     print('▅'*80,'Step2： Finding Fire by YOLO')
-    dict1, dict_all1, dict2, dict_all2 = localization2(out1 + ',' + out2)
+    dict1, dict_all1, dict2, dict_all2, HW = localization2(out1 + ',' + out2)
 
     print('▅'*80,'Step3： Tracking Object for Video1')
     track_index1, track_location1, result_path1, fire_range1, x_fire1, y_fire1 = \
@@ -280,7 +299,9 @@ if __name__=='__main__':
     # t_index2, t_location2, ymin = [],[],0
     # for i, l in zip(track_index2,track_location2):
     #     if l[1]>ymin: ymin=l[1]; t_index2.append(i); t_location2.append(l);
-
+    time.sleep(0.5)
+    show_video(out1,window_name=window_name)
+    show_video(out2, window_name)
     print('▅'*80,'Step5： Rebuilding Coordinates')
     fire_x, fire_y, fire_z = rebuild(x_fire1, y_fire1, x_fire2, y_fire2)*1e-3
     realstart_x, realstart_y, realstart_z = rebuild(startpoint1[0], startpoint1[1], startpoint2[0], startpoint2[1])*1e-3
@@ -301,7 +322,7 @@ if __name__=='__main__':
     WriteText(fire_x[0], fire_y[0], fire_z[0], radium_list, height_list, 
                     speed, angle_qing, angle_pian, angle_pian_direction)
     print('{} processed !'.format(result_path2))
-
+    # 自动显示后处理结果
 
 
 

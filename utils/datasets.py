@@ -13,13 +13,37 @@ import torch
 from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
+import depthai as dai
+from zmq import device
 
-from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first
-
+from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first,WebCamera
+from utils.torch_utils import build_multi_queue, save_muitl_frame_to_q_k, save_multi_video
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.dng']
 vid_formats = ['.mov', '.avi', '.mp4', '.mpg', '.mpeg', '.m4v', '.wmv', '.mkv']
 
+def create_rgb_cam_pipeline():
+    print("Creating pipeline: RGB CAM -> XLINK OUT")
+    pipeline = dai.Pipeline()
+
+    cam          = pipeline.create(dai.node.ColorCamera)
+    xout_preview = pipeline.create(dai.node.XLinkOut)
+    xout_video   = pipeline.create(dai.node.XLinkOut)
+
+    cam.setPreviewSize(540, 540)
+    cam.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+    cam.setInterleaved(False)
+    cam.setBoardSocket(dai.CameraBoardSocket.RGB)
+
+    xout_preview.setStreamName('rgb_preview')
+    xout_video  .setStreamName('rgb_video')
+
+    cam.preview.link(xout_preview.input)
+    cam.video  .link(xout_video.input)
+
+    streams = [ 'rgb_video']
+
+    return pipeline, streams
 # Get orientation exif tag
 for orientation in ExifTags.TAGS.keys():
     if ExifTags.TAGS[orientation] == 'Orientation':
@@ -65,7 +89,7 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
-                                             num_workers=nw,
+                                             num_workers=1,
                                              sampler=train_sampler,
                                              pin_memory=True,
                                              collate_fn=LoadImagesAndLabels.collate_fn)
@@ -235,20 +259,50 @@ class LoadStreams:  # multiple IP or RTSP cameras
         n = len(sources)
         self.imgs = [None] * n
         self.sources = sources
+        cap = cv2.VideoCapture(0)
+        self.fourcc = cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')
+        cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
+        cap.set(cv2.CAP_PROP_FPS, 60)
+        cap.set(3, 1280)  # width=1920
+        cap.set(4, 480)  # height=1080
+        
+        assert cap.isOpened(), 'Failed to open %s' % s
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if w < 1000:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH,480)
+        # self.size
+        self.fps = cap.get(cv2.CAP_PROP_FPS)         
+        self.names_video = ['rgb_double'] # 指定保存视频的字典名称
+        seconds = 3
+        # 建立保存线程1的队列
+        self.q =  {'before': build_multi_queue(seconds , fps = self.fps, names  = self.names_video  ), 'after':build_multi_queue(seconds = 3, fps = self.fps, names  = self.names_video ) }
+        # 建立事件发生变量
+        self.event = False
+        self.finish = False
         for i, s in enumerate(sources):
             # Start the thread to read frames from the video stream
             print('%g/%g: %s... ' % (i + 1, n, s), end='')
             cap = cv2.VideoCapture(0 if s == '0' else s)
+            cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
+            cap.set(cv2.CAP_PROP_FPS, 50)
+            cap.set(3, 1280)  # width=1920
+            cap.set(4, 480)  # height=1080
             assert cap.isOpened(), 'Failed to open %s' % s
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if w < 1000:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH,480)
             fps = cap.get(cv2.CAP_PROP_FPS) % 100
             _, self.imgs[i] = cap.read()  # guarantee first frame
             thread = Thread(target=self.update, args=([i, cap]), daemon=True)
             print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
             thread.start()
         print('')  # newline
-
+        self.fps = fps
+        self.size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         # check for common shapes
         s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
         self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
@@ -259,14 +313,24 @@ class LoadStreams:  # multiple IP or RTSP cameras
         # Read next stream frame in a daemon thread
         n = 0
         while cap.isOpened():
-            n += 1
+            # n += 1
             # _, self.imgs[index] = cap.read()
             cap.grab()
-            if n == 4:  # read every 4th frame
-                _, self.imgs[index] = cap.retrieve()
-                n = 0
-            time.sleep(0.01)  # wait time
-
+            # if n == 1:  # read every 4th frame
+            _, self.imgs[index] = cap.retrieve()
+            # n = 0
+            # time.sleep(0.01)  # wait time
+            # 在事件发生之前放入一个队列，在发生之后放入另一个
+            if self.event is True:
+                if self.finish == False:
+                    self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'after', self.names_video)
+                else:
+                    break
+            else:
+                self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'before', self.names_video)
+            # 
+        save_multi_video(self.q, self.fourcc, self.fps, (self.size[0] *2, self.size[1]), self.names_video)
+        print('save video in high FPS')
     def __iter__(self):
         self.count = -1
         return self
@@ -274,6 +338,11 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __next__(self):
         self.count += 1
         img0 = self.imgs.copy()
+        
+        img_dict= {'right':img0[0][:,640:,...] }
+        
+        img_dict['left'] =  img0[0][:,:640,...] 
+        img0 = [i[:,:640,...] for i in img0]
         if cv2.waitKey(1) == ord('q'):  # q to quit
             cv2.destroyAllWindows()
             raise StopIteration
@@ -288,7 +357,76 @@ class LoadStreams:  # multiple IP or RTSP cameras
         img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
         img = np.ascontiguousarray(img)
 
-        return self.sources, img, img0, None
+        return self.sources, img, img0, img_dict # TODO : 规范化输出，对于不同的设备。
+
+    def __len__(self):
+        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
+
+        
+class LoadStreams_OTA:  # read single OTA camera
+    def __init__(self, sources='streams.txt', img_size=640):
+        self.mode = 'images'
+        self.img_size = img_size
+
+        if os.path.isfile(sources):
+            with open(sources, 'r') as f:
+                sources = [x.strip() for x in f.read().splitlines() if len(x.strip())]
+        else:
+            sources = [sources]
+
+        n = len(sources)
+        self.imgs = [None] * n
+        self.sources = sources
+        self.size = (1920,1080)
+        self.camera = WebCamera()
+        self.camera.prepare()
+        dict_ = self.camera.ger_frame()
+        self.imgs[0] = dict_['rgb_video']
+
+        # thread = Thread(target=self.update, args=([q]), daemon=True)
+        # check for common shapes
+        # thread.start()
+        s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
+        self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
+        if not self.rect:
+            print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
+
+    def update(self, q):
+        # Read next stream frame in a daemon thread
+        n = 0
+        name  = q.getName()
+        image = q.get()
+        data, w, h = image.getData(), image.getWidth(), image.getHeight()
+        # data, w, h = image.getData(), image.getWidth(), image.getHeight()
+        yuv = np.array(data).reshape((h * 3 // 2, w)).astype(np.uint8)
+        self.imgs[0] = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_NV12)
+        # time.sleep(0.01)  # wait time
+
+    def __iter__(self):
+        self.count = -1
+        return self
+
+    def __next__(self):
+        self.count += 1
+        # inRgb =self.q.get()
+        dict_ = self.camera.ger_frame()
+        self.imgs[0] = dict_['rgb_video']
+        img0 = self.imgs.copy()
+        # if cv2.waitKey(1) == ord('q'):  # q to quit
+        #     cv2.destroyAllWindows()
+        #     raise StopIteration
+
+        # Letterbox
+        img = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in img0]
+
+        # Stack
+        img = np.stack(img, 0)
+
+        # Convert
+        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
+        img = np.ascontiguousarray(img)
+
+        return self.sources, img, img0, dict_
 
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
@@ -937,156 +1075,3 @@ def create_folder(path='./new'):
     if os.path.exists(path):
         shutil.rmtree(path)  # delete output folder
     os.makedirs(path)  # make new output folder
-
-
-
-class LoadStreams_double_usb:  # multiple IP or RTSP cameras
-    def __init__(self, sources='streams.txt', img_size=640):
-        self.mode = 'images'
-        self.img_size = img_size
-
-        if os.path.isfile(sources):
-            with open(sources, 'r') as f:
-                sources = [x.strip() for x in f.read().splitlines() if len(x.strip())]
-        else:
-            sources = [sources]
-
-        n = len(sources)
-        self.imgs = [None] * n
-        self.sources = sources
-        for i, s in enumerate(sources):
-            # Start the thread to read frames from the video stream
-            print('%g/%g: %s... ' % (i + 1, n, s), end='')
-            cap = cv2.VideoCapture(0 if s == '0' else s)
-            cap.set(3, 1280)  # width=1920
-            cap.set(4, 480)  # height=1080
-            assert cap.isOpened(), 'Failed to open %s' % s
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            if w < 1000:
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH,480)
-            fps = cap.get(cv2.CAP_PROP_FPS) % 100
-            _, self.imgs[i] = cap.read()  # guarantee first frame
-            thread = Thread(target=self.update, args=([i, cap]), daemon=True)
-            print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
-            thread.start()
-        print('')  # newline
-        self.size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        # check for common shapes
-        s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
-        self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
-        if not self.rect:
-            print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
-
-    def update(self, index, cap):
-        # Read next stream frame in a daemon thread
-        n = 0
-        while cap.isOpened():
-            n += 1
-            # _, self.imgs[index] = cap.read()
-            cap.grab()
-            if n == 4:  # read every 4th frame
-                _, self.imgs[index] = cap.retrieve()
-                n = 0
-            time.sleep(0.01)  # wait time
-
-    def __iter__(self):
-        self.count = -1
-        return self
-
-    def __next__(self):
-        self.count += 1
-        img0 = self.imgs.copy()
-        
-        img_dict= {'right':img0[0][:,640:,...] }
-        
-        img_dict['left'] =  img0[0][:,:640,...] 
-        img0 = [i[:,:640,...] for i in img0]
-        if cv2.waitKey(1) == ord('q'):  # q to quit
-            cv2.destroyAllWindows()
-            raise StopIteration
-
-        # Letterbox
-        img = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in img0]
-
-        # Stack
-        img = np.stack(img, 0)
-
-        # Convert
-        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
-        img = np.ascontiguousarray(img)
-
-        return self.sources, img, img0, img_dict # TODO : 规范化输出，对于不同的设备。
-
-    def __len__(self):
-        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
-
-        
-class LoadStreams_OTA:  # read single OTA camera
-    def __init__(self, sources='streams.txt', img_size=640):
-        self.mode = 'images'
-        self.img_size = img_size
-
-        if os.path.isfile(sources):
-            with open(sources, 'r') as f:
-                sources = [x.strip() for x in f.read().splitlines() if len(x.strip())]
-        else:
-            sources = [sources]
-
-        n = len(sources)
-        self.imgs = [None] * n
-        self.sources = sources
-        self.size = (1920,1080)
-        self.camera = WebCamera()
-        self.camera.prepare()
-        dict_ = self.camera.ger_frame()
-        self.imgs[0] = dict_['rgb_video']
-
-        # thread = Thread(target=self.update, args=([q]), daemon=True)
-        # check for common shapes
-        # thread.start()
-        s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
-        self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
-        if not self.rect:
-            print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
-
-    def update(self, q):
-        # Read next stream frame in a daemon thread
-        n = 0
-        name  = q.getName()
-        image = q.get()
-        data, w, h = image.getData(), image.getWidth(), image.getHeight()
-        # data, w, h = image.getData(), image.getWidth(), image.getHeight()
-        yuv = np.array(data).reshape((h * 3 // 2, w)).astype(np.uint8)
-        self.imgs[0] = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_NV12)
-        # time.sleep(0.01)  # wait time
-
-    def __iter__(self):
-        self.count = -1
-        return self
-
-    def __next__(self):
-        self.count += 1
-        # inRgb =self.q.get()
-        dict_ = self.camera.ger_frame()
-        self.imgs[0] = dict_['rgb_video']
-        img0 = self.imgs.copy()
-        # if cv2.waitKey(1) == ord('q'):  # q to quit
-        #     cv2.destroyAllWindows()
-        #     raise StopIteration
-
-        # Letterbox
-        img = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in img0]
-
-        # Stack
-        img = np.stack(img, 0)
-
-        # Convert
-        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
-        img = np.ascontiguousarray(img)
-
-        return self.sources, img, img0, dict_
-
-    def __len__(self):
-        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
