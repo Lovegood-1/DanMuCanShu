@@ -246,7 +246,7 @@ class LoadWebcam:  # for inference
 
 
 class LoadStreams:  # multiple IP or RTSP cameras
-    def __init__(self, sources='streams.txt', img_size=640):
+    def __init__(self, sources='streams.txt', img_size=640, rtsp = 'rtmp://192.168.43.89/live/livestream'):
         self.mode = 'images'
         self.img_size = img_size
 
@@ -259,19 +259,20 @@ class LoadStreams:  # multiple IP or RTSP cameras
         n = len(sources)
         self.imgs = [None] * n
         self.sources = sources
-        cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
         self.fourcc = cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')
         # cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) # 读取流不需要set
         # cap.set(cv2.CAP_PROP_FPS, 60)
         # cap.set(3, 1280)  # width=1920
         # cap.set(4, 480)  # height=1080
         
-        assert cap.isOpened(), 'Failed to open %s' % s
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        if w < 1000:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH,480)
+        if len(rtsp) > 1:
+            cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
+        else:
+            cap = cv2.VideoCapture(0)
+            cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
+            cap.set(cv2.CAP_PROP_FPS, 50)
+            cap.set(3, 1280)  # width=1920
+            cap.set(4, 480)  # height=1080        
         # self.size
         self.fps = cap.get(cv2.CAP_PROP_FPS)         
         self.names_video = ['rgb_double'] # 指定保存视频的字典名称
@@ -284,11 +285,15 @@ class LoadStreams:  # multiple IP or RTSP cameras
         for i, s in enumerate(sources):
             # Start the thread to read frames from the video stream
             print('%g/%g: %s... ' % (i + 1, n, s), end='')
-            cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
-            # cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
-            # cap.set(cv2.CAP_PROP_FPS, 50)
-            # cap.set(3, 1280)  # width=1920
-            # cap.set(4, 480)  # height=1080
+            # cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
+            if len(rtsp) > 1:
+                cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
+            else:
+                cap = cv2.VideoCapture(0)
+                cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
+                cap.set(cv2.CAP_PROP_FPS, 50)
+                cap.set(3, 1280)  # width=1920
+                cap.set(4, 480)  # height=1080
             assert cap.isOpened(), 'Failed to open %s' % s
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

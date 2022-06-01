@@ -36,7 +36,7 @@ def detect(save_img=False, camera_device = 'usb'):
     out, source, weights, view_img, save_txt, imgsz = \
         opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
-
+    rtsp = ''
     # Initialize
     device = select_device(opt.device)
     if os.path.exists(out):
@@ -69,7 +69,7 @@ def detect(save_img=False, camera_device = 'usb'):
     if webcam:
         view_img = True
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams_OTA(source, img_size=imgsz) if camera_device == 'OTA' else LoadStreams(source, img_size=imgsz) 
+        dataset = LoadStreams_OTA(source, img_size=imgsz) if camera_device == 'OTA' else LoadStreams(source, img_size=imgsz, rtsp=rtsp) 
     else:
         save_img = True
         dataset = LoadImages(source, img_size=imgsz)

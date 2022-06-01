@@ -231,14 +231,20 @@ if __name__=='__main__':
     # 直播检测，保存视频
     from detect_OTA import detect  
     # opt = get_opt()
-    detect()
+    # detect()
 
     # 矫正视频
-    
+    import  calibration.param_0531 as stereoconfig
+    from utils.video_rectify import video_rectify_double
+
+    left_video = r'video\camera_rgb_double.avi'
+    config = stereoconfig.stereoCamera()
+    Video = video_rectify_double(left_video,  config)
+    Video.rectify_video_double()
 
     root = 'video\\'
 
-    path = root+'camera_rgb_double.avi'
+    path = root+'camera_rgb_double_rectify_all_.avi'
     out1 = root+'camera_leftrectify.avi'
     out2 = root+'camera_rightrectify.avi'
 
