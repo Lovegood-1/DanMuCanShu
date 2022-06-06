@@ -466,7 +466,7 @@ def get_max_bbox(path, dict_):
     return uv_point, H_W
 
 
-def show_video(video_path, window_name):
+def show_video(video_path, window_name, times = 1):
     frame_counter = 0
     video_path = video_path.split('.')[0] + '_results.mp4'
     assert os.path.isfile(video_path)
@@ -480,11 +480,13 @@ def show_video(video_path, window_name):
             cv2.imshow(window_name, frame)
         else:
             cap = cv2.VideoCapture(video_path)
-            play_times += 1
-            if play_times > 2:
+            
+            if play_times >= times:
                 print("视频播放完成！")
                 break
-
+            if times == 1:
+                break
+            play_times += 1
         # 退出播放
         key = cv2.waitKey(25)
         if key == 27:  # 按键esc

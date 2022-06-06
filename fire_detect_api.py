@@ -1,12 +1,13 @@
 from detect_api2 import detect2
 from optflow_diff_api import video_process
-from twoeye import rebuild
-
+# from twoeye import rebuild
+import shutil
 import cv2
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import os
 import time
+# from twoeye import rebuild
 from utils.torch_utils import get_max_bbox, show_video
 # os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
@@ -72,7 +73,7 @@ def fire_info(dict_):
 
 
 def WriteText(dd_x, dd_y, dd_z, radium_list, height_list, speed, angle_qing, angle_pian, angle_pian_direction):
-    dd_z=0
+    # dd_z=0
 
     print(angle_pian_direction)
     angle_pian_direction = angle_pian_direction.replace('前','南')
@@ -94,9 +95,13 @@ def WriteText(dd_x, dd_y, dd_z, radium_list, height_list, speed, angle_qing, ang
     speed_number = '%.2f m/s'%speed+'\n'+'\n'
     
     fire_radium_max_str = '火焰最大半径为：'+'\n'
+    if len(radium_list) == 0 : # BUG
+        radium_list = [0.5]
     fire_radium_max = '%.2fm'%max(radium_list)+'\n'+'\n'
 
     fire_height_max_str = '火焰最大高度为：'+'\n'
+    if len(height_list) == 0 :
+        height_list = [0.5]
     fire_height_max = '%.2fm'%max(height_list)
 
     danmu_txt = root+'danmu.txt'
@@ -227,23 +232,30 @@ if __name__=='__main__':
     img = cv2.imread('1.png')
     window_name= '0'
     cv2.imshow(window_name,img)
+    root = 'video\\' # 新建文件夹用于保存视频
+    # if os.path.exists(root): # 
+    #     shutil.rmtree(root)
+    #     print('OPERATION: remove %s' % root)
+    #     # shutil.rmtree(r'c:\1')
+    #     os.mkdir(root)
+    #     print('OPERATION: create %s' % root)
+    # else:
+    #     os.mkdir(root)
 
-    # 直播检测，保存视频
+    # # 直播检测，保存视频
     from detect_OTA import detect  
-    # opt = get_opt()
     # detect()
 
-    # 矫正视频
+    # # 矫正视频
     import  calibration.param_0531 as stereoconfig
     from utils.video_rectify import video_rectify_double
-
     left_video = r'video\camera_rgb_double.avi'
     config = stereoconfig.stereoCamera()
     Video = video_rectify_double(left_video,  config)
-    Video.rectify_video_double()
+    # Video.rectify_video_double()
 
-    root = 'video\\'
 
+    
     path = root+'camera_rgb_double_rectify_all_.avi'
     out1 = root+'camera_leftrectify.avi'
     out2 = root+'camera_rightrectify.avi'
@@ -309,12 +321,13 @@ if __name__=='__main__':
     # for i, l in zip(track_index2,track_location2):
     #     if l[1]>ymin: ymin=l[1]; t_index2.append(i); t_location2.append(l);
     time.sleep(0.5)
-    show_video(out1,window_name=window_name)
-    show_video(out2, window_name)
+    show_video(out1,window_name=window_name) # 接着显示处理后的视频
+    # show_video(out2, window_name)
     print('▅'*80,'Step5： Rebuilding Coordinates')
-    fire_x, fire_y, fire_z = rebuild(x_fire1, y_fire1, x_fire2, y_fire2)*1e-3
-    realstart_x, realstart_y, realstart_z = rebuild(startpoint1[0], startpoint1[1], startpoint2[0], startpoint2[1])*1e-3
-    realend_x, realend_y, realend_z = rebuild(endpoint1[0], endpoint1[1], endpoint2[0], endpoint2[1])*1e-3
+    rebuild = Video.triangulation
+    fire_x, fire_y, fire_z = rebuild(x_fire1, y_fire1, x_fire2, y_fire2)
+    realstart_x, realstart_y, realstart_z = rebuild(startpoint1[0], startpoint1[1], startpoint2[0], startpoint2[1])
+    realend_x, realend_y, realend_z = rebuild(endpoint1[0], endpoint1[1], endpoint2[0], endpoint2[1])
         
     print('▅'*80,'Step6： Rebuilding Fire Size')
     radium_list, height_list, speed, angle_qing, angle_pian, angle_pian_direction = \

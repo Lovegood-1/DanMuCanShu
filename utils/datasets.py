@@ -334,7 +334,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
             else:
                 self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'before', self.names_video)
             # 
-        save_multi_video(self.q, self.fourcc, self.fps, (self.size[0] *2, self.size[1]), self.names_video)
+        save_multi_video(self.q, self.fourcc, self.fps, (self.size[0] *2, self.size[1]), self.names_video) # BUG 0601
         print('save video in high FPS')
     def __iter__(self):
         self.count = -1

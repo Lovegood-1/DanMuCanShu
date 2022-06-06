@@ -112,7 +112,7 @@ def splitdict(dict, shape):
 
 
 
-def video_process(root, video_path, dict_first, dict_all):
+def video_process(root, video_path, dict_first, dict_all, show_fire_point = True):
 
     # 导弹出现情况统计
     track_index, track_location = [], []
@@ -164,7 +164,7 @@ def video_process(root, video_path, dict_first, dict_all):
         x_fire,y_fire = findpoint_fire([fire_bl_x, fire_bl_y, fire_br_x, fire_br_y])
     except:
         pass
-
+    
     # 对 dict_all 进行处理，挑选出拥有火焰的帧，且返回这些帧信息和火焰信息
     # fire_local : [(tlx,tly),(brx,bry),w,h]
     fire_local,fire_index_max= splitdict(dict_all, old_gray.shape)
@@ -300,7 +300,7 @@ def video_process(root, video_path, dict_first, dict_all):
                     tlx, tly, brx, bry, w, h = fire_local.get(count)[0][0], fire_local.get(count)[0][1], fire_local.get(count)[1][0], fire_local.get(count)[1][1],\
                                                 fire_local.get(count)[2], fire_local.get(count)[3]
 
-                    fire_range_1 = oneeye(tlx, tly)
+                    fire_range_1 = oneeye(tlx, tly) # BUG
                     fire_range_2 = oneeye(brx, bry)
 
                     fire_range_temp = []

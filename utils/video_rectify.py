@@ -216,7 +216,7 @@ class video_rectify_double:
         count = cap_l.get(cv2.CAP_PROP_FRAME_COUNT)
         fps = cap_l.get(cv2.CAP_PROP_FPS)
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(save_p, fourcc, fps, (int(w) * 2, int(h)))
+        out = cv2.VideoWriter(save_p, fourcc, fps, (int(w), int(h)))
         print('save >>>', save_p )
 
         # 获取矫正后的图片
@@ -228,7 +228,7 @@ class video_rectify_double:
                 rec_frame_l = self.rectify_single_image(frame_l, 'left')
                 rec_frame_r = self.rectify_single_image(frame_r, 'right')
 
-                cv2.imshow('rec',self.draw_line(rec_frame_l, rec_frame_r))
+                # cv2.imshow('rec',self.draw_line(rec_frame_l, rec_frame_r))
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
                 out.write(np.concatenate((rec_frame_l, rec_frame_r), axis = 1))
@@ -288,5 +288,12 @@ class video_rectify_double:
         return output
 
     def triangulation(self, x0, y0, x1, y1):
-        points_3d =s
-        return 
+        # disp = np.zeros((self.info_dict['H'], self.info_dict['W']))
+        disp = np.abs(x0 - x1)
+        if np.abs(y0 - y1) > 10:
+            print('由于像素不在一个水平线上面，点的三维重建误差较大')
+        vec_tmp = np.array([[x0,y0,disp,1]]).T
+        vec_tmp = self.Q @ vec_tmp
+        vec_tmp /= vec_tmp[3]
+        vec_tmp /= 1000
+        return vec_tmp[0], vec_tmp[1], vec_tmp[2]        
