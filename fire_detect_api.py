@@ -36,19 +36,31 @@ def video_preprocess(path, out1, out2):
     videoWriter2.release()
 
 
-def localization2(path):
+def localization2(path, rebuild):
     # 一次性输入两个视频的路径
-    """
-    return 
-        HW: 目标的高宽
+    """_summary_
+
+    Args:
+        path (_type_): _description_
+
+    Returns:
+        _type_: _description_
+        fire_left: the pixel coordinates of bbox left bottom in both camera
+            (4,) for a bbox:[ul,vl,ur,vr]
+        fire_right: the pixel coordinates of bbox right bottom in both camera
+            (4,) for a bbox:[ul,vl,ur,vr]
+        pixel_distance_of_high: the pixel distance of the height of bbox in left camera
+            (1,) for a bbox  
     """
     dict_, dict_2 = detect2(path) # 返回 两个视频的字典
     dict1, dict_all1 = fire_info(dict_) # 第一帧的索引
     dict2, dict_all2 = fire_info(dict_2)
-    HW = 0
-    # uv, HW =  get_max_bbox(path, dict_)
-    
-    return dict1, dict_all1, dict2, dict_all2, HW
+    # HW = 0
+    fire_left, fire_right, pixel_distance_of_high =  get_max_bbox(path, dict_, dict_2)
+    d = rebuild.triangulation_double_bbox(fire_left, fire_right)
+    h = (pixel_distance_of_high/(fire_left[2] - fire_left[1])) * d
+
+    return dict1, dict_all1, dict2, dict_all2, d, h
 
 
 def fire_info(dict_):
@@ -228,23 +240,20 @@ def compute_FireSize_DDSpeed_Angle(fire_range1, fire_range2,
 
 if __name__=='__main__':
 
-    # 初始化窗口
-    img = cv2.imread('1.png')
-    window_name= '0'
-    cv2.imshow(window_name,img)
-    root = 'video\\' # 新建文件夹用于保存视频
-    # if os.path.exists(root): # 
-    #     shutil.rmtree(root)
-    #     print('OPERATION: remove %s' % root)
-    #     # shutil.rmtree(r'c:\1')
-    #     os.mkdir(root)
-    #     print('OPERATION: create %s' % root)
-    # else:
-    #     os.mkdir(root)
 
-    # # 直播检测，保存视频
-    from detect_OTA import detect  
-    # detect()
+    root = 'video\\' # 新建文件夹用于保存视频
+    if os.path.exists(root): # 
+        shutil.rmtree(root)
+        print('OPERATION: remove %s' % root)
+        # shutil.rmtree(r'c:\1')
+        os.mkdir(root)
+        print('OPERATION: create %s' % root)
+    else:
+        os.mkdir(root)
+
+    # # # 直播检测，保存视频
+    # from detect_OTA import detect  
+    # # detect()
 
     # # 矫正视频
     import  calibration.param_0531 as stereoconfig
@@ -253,7 +262,7 @@ if __name__=='__main__':
     config = stereoconfig.stereoCamera()
     Video = video_rectify_double(left_video,  config)
     # Video.rectify_video_double()
-
+    rebuild = Video.triangulation
 
     
     path = root+'camera_rgb_double_rectify_all_.avi'
@@ -264,7 +273,7 @@ if __name__=='__main__':
     video_preprocess(path, out1, out2)
 
     print('▅'*80,'Step2： Finding Fire by YOLO')
-    dict1, dict_all1, dict2, dict_all2, HW = localization2(out1 + ',' + out2)
+    dict1, dict_all1, dict2, dict_all2, W, H = localization2(out1 + ',' + out2, Video)
 
     print('▅'*80,'Step3： Tracking Object for Video1')
     track_index1, track_location1, result_path1, fire_range1, x_fire1, y_fire1 = \
@@ -324,11 +333,12 @@ if __name__=='__main__':
     show_video(out1,window_name=window_name) # 接着显示处理后的视频
     # show_video(out2, window_name)
     print('▅'*80,'Step5： Rebuilding Coordinates')
-    rebuild = Video.triangulation
     fire_x, fire_y, fire_z = rebuild(x_fire1, y_fire1, x_fire2, y_fire2)
     realstart_x, realstart_y, realstart_z = rebuild(startpoint1[0], startpoint1[1], startpoint2[0], startpoint2[1])
     realend_x, realend_y, realend_z = rebuild(endpoint1[0], endpoint1[1], endpoint2[0], endpoint2[1])
-        
+    
+
+
     print('▅'*80,'Step6： Rebuilding Fire Size')
     radium_list, height_list, speed, angle_qing, angle_pian, angle_pian_direction = \
                         compute_FireSize_DDSpeed_Angle(fire_range1, fire_range2, 
@@ -338,6 +348,7 @@ if __name__=='__main__':
 
     # print('▅'*80,'Step7： Saving txt information')
     # Add Text
+    radium_list, height_list = [W/2], [H]
     WriteText(fire_x[0], fire_y[0], fire_z[0], radium_list, height_list, 
                     speed, angle_qing, angle_pian, angle_pian_direction)
     print('{} processed !'.format(result_path1))
@@ -345,6 +356,3 @@ if __name__=='__main__':
                     speed, angle_qing, angle_pian, angle_pian_direction)
     print('{} processed !'.format(result_path2))
     # 自动显示后处理结果
-
-
-

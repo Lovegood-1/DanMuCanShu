@@ -113,6 +113,21 @@ def splitdict(dict, shape):
 
 
 def video_process(root, video_path, dict_first, dict_all, show_fire_point = True):
+    """_summary_
+
+    Args:
+        root (_type_): _description_
+        video_path (_type_): _description_
+        dict_first (_type_): _description_
+        dict_all (_type_): _description_
+        show_fire_point (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        np.array(track_index): track_index: list, save the indexs of frame where moving objects appear
+        np.array(track_location): track_location: list,  save the Pixel coordinates of moving objects for each element in track_index
+        save_filename:_description_
+        fire_range, x_fire, y_fire
+    """
 
     # 导弹出现情况统计
     track_index, track_location = [], []

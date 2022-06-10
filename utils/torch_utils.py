@@ -415,56 +415,105 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
         cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
         cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
-def get_max_bbox(path, dict_):
-    path_l = path.strip().split(',')[0]
-    path_r = path.strip().split(',')[-1]
-    sorted_results = sorted(dict_.items(), key = lambda kv:(kv[1], kv[0]), reverse=True)
-    Max_area_bbox_index = sorted_results[1][0]
-    # Max_area_bbox = sorted_results[1][-1][0].strip().split(' ')[1:]
-    xyhw = [float(i) for i in  sorted_results[1][-1][0].strip().split(' ')[1:] ]
-    xyxy=xywh2xyxy(torch.tensor([xyhw]))
-    cap = cv2.VideoCapture(path_l)
+
+def calculate_bbox_area_from_list(bbox_list):
+    """_summary_
+
+    Args:
+        bbox_list (list): fire info in every frame 
+            ['0, x, y, h, w', '0, x, y, h, w', ...]
+    """
+    max_area  = -1
+    max_bbox = []
+    for bbox_ in bbox_list:
+        bbox = bbox_.strip().split(' ')[1:]
+        bbox = [float(i.strip()) for i in bbox]
+        if bbox[-2] * bbox[-1] > max_area:
+            max_bbox = bbox
+            max_area = bbox[-2] * bbox[-1]
+    return max_area, max_bbox 
+
+
+def _2xyxy(right_bbox, img_shape):
+    """convert xywh -> xyxy(左上右下)
+
+    Args:
+        right_bbox (_type_): _description_
+        frame (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    center_x = right_bbox[0] * img_shape[1]
+    center_y = right_bbox[1] * img_shape[0]
+    w = right_bbox[2] * img_shape[1]
+    h = right_bbox[3] * img_shape[0]
+    tl_x = center_x-w/2
+    tl_y = center_y-h/2
+    br_x = center_x+w/2
+    br_y = center_y+h/2
+    l = [tl_x, tl_y, br_x, br_y]
+    l = [int(i) for i in  l]
+    return l
+
+def show_bbox(path_, max_bbox_index, left_bbox):
+    cap = cv2.VideoCapture(path_) 
+    cap.set(cv2.CAP_PROP_POS_FRAMES,max_bbox_index)
+    a,imgl=cap.read()
+    cap.release()
     
-    cap.set(cv2.CAP_PROP_POS_FRAMES,Max_area_bbox_index)
-    a, imgl=cap.read()
-    gn = torch.tensor(imgl.shape)[[1, 0, 1, 0]]
-    # colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(2)]
-    xy = [i for i in  xyxy[0]]
-    gn_ = [i for i in  gn]
-    a_ = xyxy * gn
-    colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(2)]
-    plot_one_box([i for i in  a_[0]], imgl, label=0, color=colors[int(0)], line_thickness=3)
-    cv2.imshow('b', imgl) # 展示二阶段火焰检测的bbox
+    imgl = cv2.rectangle(imgl, (left_bbox[0],left_bbox[1]), (left_bbox[2],left_bbox[3]), (0,255,0), 4)
+    return imgl
+
+def get_max_bbox(path, dict_, dict2_):
+    """_summary_
+
+    Args:
+        dict_ (dict[narray]): fire info in every frame
+            {num_frame: ['0, x, y, h, w', '0, x, y, h, w', ...]}
+    Returns:
+        _type_: _description_
+        fire_left: the pixel coordinates of bbox left bottom in both camera
+            (4,) for a bbox:[xl,yl,xr,yr]
+        fire_right: the pixel coordinates of bbox right bottom in both camera
+            (4,) for a bbox:[xl,yl,xr,yr]
+        pixel_distance_of_high: the pixel distance of the height of bbox in left camera
+            (1,) for a bbox  
+    """
+    # 在做相机中找最大bbox
+    cap = cv2.VideoCapture(path.split(',')[0])
+    ret, frame = cap.read()
     cap.release()
-    cap = cv2.VideoCapture(path_r)
-    cap.set(cv2.CAP_PROP_POS_FRAMES,Max_area_bbox_index)
-    a, imgr=cap.read()
-    cap.release()
+    max_bbox_area = -1
+    max_bbox_index = -1
+    left_bbox = [] # xyhw
+    right_bbox = []
+    for frame_l in dict_:
+        # 如果是当前最大，判断又相机满足：1 单个火焰，则记录下来
+        bbox_area, bbox = calculate_bbox_area_from_list(dict_[frame_l])
+        if bbox_area > max_bbox_area:
+            if frame_l in dict2_:
+                if len(dict2_[frame_l]) == 1:
+                    max_bbox_area = bbox_area
+                    max_bbox_index = frame_l
+                    left_bbox = bbox
+                    _, bbox = calculate_bbox_area_from_list(dict2_[frame_l])
+                    right_bbox = bbox
+    # 转化为像素坐标，选择性可视化
+    left_bbox = _2xyxy(left_bbox, frame.shape)
+    right_bbox = _2xyxy(right_bbox, frame.shape)
+    fire_left = [left_bbox[0], left_bbox[3], right_bbox[0], right_bbox[3],]
+    fire_right = [left_bbox[2], left_bbox[3], right_bbox[2], right_bbox[3],]
+    pixel_distance_of_high = left_bbox[3] - left_bbox[1]
+    if 1 == 1:
+        # 获取指定帧，左右相机的图片,用于验证bbox是否正确
+        imgl_bbox = show_bbox(path.split(',')[0], max_bbox_index, left_bbox)
+        imgr_bbox = show_bbox(path.split(',')[-1], max_bbox_index, right_bbox)
+        cv2.imshow('left',imgl_bbox)
+        cv2.imshow('right', imgr_bbox)
 
-
-    left_video = r'video\camera_left.avi'
-    right_video = r'video\camera_right.avi'
-    config = stereoconfig_040_2.stereoCamera()
-    Video = video_rectify(left_video, right_video, config)
-
-
-
-    from utils.estimate_disparty import Estimate_disparty
-    # imgl = Max_file_img['img']['left']
-    # imgr = Max_file_img['img']['right']
-    bbox = np.array(a_).reshape(2,-1)
-    EstimateDisparty =  Estimate_disparty()
-    # imgl = Video.rectify_single_image(imgl, 'left')
-    # imgr = Video.rectify_single_image(imgr, 'right')
-    disp = EstimateDisparty.calculate_disparty(imgl, imgr)
-    points_3d = cv2.reprojectImageTo3D(disp, Video.Q)
-    uv_point, H_W = EstimateDisparty.get_object_xy(bbox = bbox, disp = disp, Q = Video.Q)
-    img_show = show_point(uv_point, disp)# 展示上下左右点
-    # img_show = img_show * 0.6 + 0.4 *cv2.applyColorMap(disp.astype(np.uint8))
-    cv2.imshow('l_r',  np.concatenate((imgl, imgr), axis = 1))
-    cv2.imshow("disparity", img_show.astype(np.uint8))
-    return uv_point, H_W
-
+    return fire_left, fire_right, pixel_distance_of_high
+   
 
 def show_video(video_path, window_name, times = 1):
     frame_counter = 0

@@ -5,7 +5,7 @@
 from typing import Tuple
 import cv2 
 import os.path as osp
-
+import math
 import numpy as np
 
 
@@ -297,3 +297,26 @@ class video_rectify_double:
         vec_tmp /= vec_tmp[3]
         vec_tmp /= 1000
         return vec_tmp[0], vec_tmp[1], vec_tmp[2]        
+    def triangulation_double_bbox(self,pt_1,pt_2):
+        pt_lx, pt_ly, pt_rx, pt_ry = pt_1
+        pt2_lx, pt2_ly, pt2_rx, pt2_ry = pt_2
+        # disp = np.zeros((self.info_dict['H'], self.info_dict['W']))
+        # disp = np.abs(x0 - x1)
+        disp_bbox = (np.abs(pt_lx - pt_rx) + np.abs(pt2_lx - pt2_rx))/2
+
+ 
+        vec_tmp = np.array([[pt_lx, pt_ly,disp_bbox,1]]).T
+        vec_tmp = self.Q @ vec_tmp
+        vec_tmp /= vec_tmp[3]
+        vec_tmp /= 1000
+        vec_tmp_l = vec_tmp 
+        vec_tmp = np.array([[pt2_lx, pt2_ly,disp_bbox,1]]).T
+        vec_tmp = self.Q @ vec_tmp
+        vec_tmp /= vec_tmp[3]
+        vec_tmp /= 1000
+
+        a = self.cal_distance(np.squeeze(np.array(vec_tmp_l)), np.squeeze(np.array(vec_tmp)))
+
+        return a  
+    def cal_distance(self, p1,p2,vertical = False):
+        return math.sqrt(math.pow(p2[0] - p1[0],2) + math.pow(p2[1] - p1[1],2) + math.pow(p2[2] - p1[2],2))
