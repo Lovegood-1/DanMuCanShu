@@ -10,4 +10,7 @@
 *.avi
 *.png
 *.txt
-video/danmu.txt
+video/ 
+*.json
+build/
+*.txt

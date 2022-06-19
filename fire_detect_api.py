@@ -10,7 +10,7 @@ import time
 # from twoeye import rebuild
 from utils.torch_utils import get_max_bbox, show_video
 # os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
-
+import webbrowser
 def video_preprocess(path, out1, out2):
     # 将双目相机拍摄的视频裁切开，处理完之后进行保存
 
@@ -94,42 +94,38 @@ def WriteText(dd_x, dd_y, dd_z, radium_list, height_list, speed, angle_qing, ang
     angle_pian_direction = angle_pian_direction.replace('右','西')
 
     # 保存检测结果至txt文件
-    angle_qing_str = '弹道倾角为：'+'\n'
-    angle_qing_number = '%.2f 度'%angle_qing+'\n'+'\n'
+    print(angle_qing)
 
-    angle_pian_str = '弹道偏角为：'+'\n'
-    angle_pian_number = angle_pian_direction+'方向，'+'%.2f 度'%angle_pian+'\n'+'\n'
+    locating_x_str = str(np.around(dd_x,2)) + '\n'
+    locating_y_str = str(np.around(dd_y,2)) + '\n'
+    locating_z_str = str(np.around(dd_z,2)) + '\n'
 
-    locating_str = '导弹落点坐标为：'+'\n'
-    locating_coordinates = '%.2fm'%dd_x+', '+'%.2fm'%dd_y+', '+'%.2fm'%dd_z+'\n'+'\n'
+    speed_str = str(np.around(speed[0],2)) + '\n'
 
-    speed_str = '导弹落地速度为：'+'\n'
-    speed_number = '%.2f m/s'%speed+'\n'+'\n'
+    angle_qing_str = str(np.around(angle_qing[0],2)) + '\n'
+
+    angle_pian_str = angle_pian_direction + str(np.around(angle_pian[0],2)) + '\n'
+
     
-    fire_radium_max_str = '火焰最大半径为：'+'\n'
     if len(radium_list) == 0 : # BUG
         radium_list = [0.5]
-    fire_radium_max = '%.2fm'%max(radium_list)+'\n'+'\n'
+        
+    fire_radium_max_str = str(np.around(max(radium_list),2)) + '\n'
 
-    fire_height_max_str = '火焰最大高度为：'+'\n'
     if len(height_list) == 0 :
         height_list = [0.5]
-    fire_height_max = '%.2fm'%max(height_list)
+    fire_height_max_str = str(np.around(max(height_list),2)) + '\n'
 
-    danmu_txt = root+'danmu.txt'
+    danmu_txt = 'D:/view32/view32/data/' +'data.txt'
     danmu = open(danmu_txt, 'w', encoding='utf-8')
-    danmu.write(angle_qing_str)
-    danmu.write(angle_qing_number)
-    danmu.write(angle_pian_str)
-    danmu.write(angle_pian_number)
-    danmu.write(locating_str)
-    danmu.write(locating_coordinates)
+    danmu.write(locating_x_str)
+    danmu.write(locating_y_str)
+    danmu.write(locating_z_str)
     danmu.write(speed_str)
-    danmu.write(speed_number)
+    danmu.write(angle_qing_str)
+    danmu.write(angle_pian_str)
     danmu.write(fire_radium_max_str)
-    danmu.write(fire_radium_max)
     danmu.write(fire_height_max_str)
-    danmu.write(fire_height_max)
     danmu.close()
 
     # weili_txt = root+'weili.txt'
@@ -258,7 +254,7 @@ if __name__=='__main__':
     # # 矫正视频
     import  calibration.param_0531 as stereoconfig
     from utils.video_rectify import video_rectify_double
-    left_video = r'video\camera_rgb_double.avi'
+    left_video = os.path.join(root,'camera_rgb_double.avi')
     config = stereoconfig.stereoCamera()
     Video = video_rectify_double(left_video,  config)
     # Video.rectify_video_double()
@@ -330,7 +326,7 @@ if __name__=='__main__':
     # for i, l in zip(track_index2,track_location2):
     #     if l[1]>ymin: ymin=l[1]; t_index2.append(i); t_location2.append(l);
     time.sleep(0.5)
-    show_video(out1,window_name=window_name) # 接着显示处理后的视频
+    # show_video(out1,window_name=window_name) # 接着显示处理后的视频
     # show_video(out2, window_name)
     print('▅'*80,'Step5： Rebuilding Coordinates')
     fire_x, fire_y, fire_z = rebuild(x_fire1, y_fire1, x_fire2, y_fire2)
@@ -356,3 +352,8 @@ if __name__=='__main__':
                     speed, angle_qing, angle_pian, angle_pian_direction)
     print('{} processed !'.format(result_path2))
     # 自动显示后处理结果
+
+    time.sleep(1)
+    web_path = 'http://localhost:8088/danmu.html'
+    print('打开网页', web_path)
+    webbrowser.open(web_path)

@@ -13,7 +13,7 @@ import torch
 from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
-import depthai as dai
+# import depthai as dai
 from zmq import device
 
 from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first,WebCamera
@@ -289,7 +289,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
             if len(rtsp) > 1:
                 cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
             else:
-                cap = cv2.VideoCapture(0)
+                cap = cv2.VideoCapture("rtmp://192.168.1.100/live/livestream5")
                 cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
                 cap.set(cv2.CAP_PROP_FPS, 50)
                 cap.set(3, 1280)  # width=1920

@@ -306,7 +306,7 @@ def save_multi_video(q,fourcc, FPS, size, names = ['rgb', 'left', 'right'], devi
         out_ = { i: cv2.VideoWriter(os.path.join(save_video_path,'camera_%s.avi'%i), fourcc, FPS, (size[0]//2,size[1]))    for i in names }
     else:
         out_ = { i: cv2.VideoWriter('camera_%s.avi'%i, fourcc, FPS, size) if 'rgb' in i else  cv2.VideoWriter('camera_%s.avi'%i, fourcc, FPS, (1280,720), isColor=False)  for i in names }
-    
+    # print('camera_%s.avi'%i)
     for name in names:
         while True:
             if q['before'][name].qsize()>0:

@@ -141,7 +141,8 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
 
     # 路径定义
     filename = video_path.split('\\')[-1].split('.')[0]
-    save_filename = root+'./{}_results.mp4'.format(filename)
+    # save_filename = root+'./{}_results.mp4'.format(filename)
+    save_filename = 'D:/view32/view32/video/'+'save1.mp4'.format(filename)
     opticalpoints_filename = root+'./{}_opticalpoints.jpg'.format(filename)
     
     # 视频参数设置
