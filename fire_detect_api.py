@@ -1,5 +1,5 @@
 from detect_api2 import detect2
-from optflow_diff_api import video_process
+from optflow_diff_api import frame_diff, video_process
 # from twoeye import rebuild
 import shutil
 import cv2
@@ -37,11 +37,10 @@ def video_preprocess(path, out1, out2):
 
 
 def localization2(path, rebuild):
-    # 一次性输入两个视频的路径
     """_summary_
 
     Args:
-        path (_type_): _description_
+        path (_type_): 一次性输入两个视频的路径
 
     Returns:
         _type_: _description_
@@ -56,11 +55,11 @@ def localization2(path, rebuild):
     dict1, dict_all1 = fire_info(dict_) # 第一帧的索引
     dict2, dict_all2 = fire_info(dict_2)
     # HW = 0
-    fire_left, fire_right, pixel_distance_of_high =  get_max_bbox(path, dict_, dict_2)
+    fire_left, fire_right, pixel_distance_of_high ,left_bbox, fire_frame=  get_max_bbox(path, dict_, dict_2)
     d = rebuild.triangulation_double_bbox(fire_left, fire_right)
     h = (pixel_distance_of_high/(fire_left[2] - fire_left[1])) * d
 
-    return dict1, dict_all1, dict2, dict_all2, d, h
+    return dict1, dict_all1, dict2, dict_all2, d, h, left_bbox, fire_frame
 
 
 def fire_info(dict_):
@@ -237,27 +236,19 @@ def compute_FireSize_DDSpeed_Angle(fire_range1, fire_range2,
 if __name__=='__main__':
 
 
-    root = 'video\\' # 新建文件夹用于保存视频
-    if os.path.exists(root): # 
-        shutil.rmtree(root)
-        print('OPERATION: remove %s' % root)
-        # shutil.rmtree(r'c:\1')
-        os.mkdir(root)
-        print('OPERATION: create %s' % root)
-    else:
-        os.mkdir(root)
+    root = 'video\\' 
 
-    # # # 直播检测，保存视频
+    # # # 直播检测，保存视频 # 当前版本不用
     # from detect_OTA import detect  
-    # # detect()
+    # detect()
 
-    # # 矫正视频
+    # # 矫正视频，输出拼接的视频
     import  calibration.param_0531 as stereoconfig
     from utils.video_rectify import video_rectify_double
     left_video = os.path.join(root,'camera_rgb_double.avi')
     config = stereoconfig.stereoCamera()
     Video = video_rectify_double(left_video,  config)
-    # Video.rectify_video_double()
+    Video.rectify_video_double()
     rebuild = Video.triangulation
 
     
@@ -269,15 +260,15 @@ if __name__=='__main__':
     video_preprocess(path, out1, out2)
 
     print('▅'*80,'Step2： Finding Fire by YOLO')
-    dict1, dict_all1, dict2, dict_all2, W, H = localization2(out1 + ',' + out2, Video)
+    dict1, dict_all1, dict2, dict_all2, W, H, left_bbox, fire_frame = localization2(out1 + ',' + out2, Video)
 
     print('▅'*80,'Step3： Tracking Object for Video1')
     track_index1, track_location1, result_path1, fire_range1, x_fire1, y_fire1 = \
-                                                    video_process(root, out1, dict1, dict_all1)
+                                                    video_process(root, out1, dict1, dict_all1, W = W, H = H,  left_bbox = left_bbox, fire_frame= fire_frame)
 
     print('▅'*80,'Step4： Tracking Object for Video2')
     track_index2, track_location2, result_path2, fire_range2, x_fire2, y_fire2 = \
-                                                    video_process(root, out2, dict2, dict_all2)
+                                                    video_process(root, out2, dict2, dict_all2, left_bbox)
 
     print('▅'*80,'Step5： Smoothing Tracked Points')
     startpoint1, endpoint1, startpoint2, endpoint2 = -1,-1,-1,-1

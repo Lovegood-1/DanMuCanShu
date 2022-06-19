@@ -1,3 +1,4 @@
+from operator import le
 import numpy as np
 import cv2
 # from numpy.core.shape_base import block
@@ -112,7 +113,7 @@ def splitdict(dict, shape):
 
 
 
-def video_process(root, video_path, dict_first, dict_all, show_fire_point = True):
+def video_process(root, video_path, dict_first, dict_all, show_fire_point = True, W = 0.0, H = 0.0,  left_bbox = None, fire_frame = 0): # TODO: 参数实在太多，减小参数的数量
     """_summary_
 
     Args:
@@ -121,6 +122,9 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
         dict_first (_type_): _description_
         dict_all (_type_): _description_
         show_fire_point (bool, optional): _description_. Defaults to True.
+        W (float): the real width of bbox
+        H (float): the real height of bbox
+        left_bbox (narray, optional): the largest bbox of left img
 
     Returns:
         np.array(track_index): track_index: list, save the indexs of frame where moving objects appear
@@ -142,7 +146,10 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
     # 路径定义
     filename = video_path.split('\\')[-1].split('.')[0]
     # save_filename = root+'./{}_results.mp4'.format(filename)
-    save_filename = 'D:/view32/view32/video/'+'save1.mp4'.format(filename)
+    if 'left' in filename:
+        save_filename = 'D:/view32/view32/video/'+'save1.mp4'.format(filename)
+    else:
+        save_filename = 'D:/view32/view32/video/'+'{}_results.mp4'.format(filename)
     opticalpoints_filename = root+'./{}_opticalpoints.jpg'.format(filename)
     
     # 视频参数设置
@@ -292,8 +299,8 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
 
             mask_track = np.zeros_like(old_frame)
             # 将光流追踪点最上方的点和火焰边框中心点连线作为XX运行轨迹
-            mask_track = cv2.line(mask_track, (int(x_dd),int(y_dd)), (int(x_fire), int(y_fire)), (0,255,0), 4)
-            mask_track = cv2.circle(mask_track, (int(x_fire), int(y_fire)), 70, (0,0,255), -1)
+            mask_track = cv2.line(mask_track, (int(x_dd),int(y_dd)), (int(x_fire), int(y_fire)), (255,255,255), 2)
+            mask_track = cv2.circle(mask_track, (int(x_fire), int(y_fire)), 20, (0,0,255), -1)
 
             result_img = frame
             result_img = cv2.add(result_img, mask_track)
@@ -311,29 +318,22 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
 
             # fire_local : [(tlx,tly),(brx,bry),w,h]
             if count in fire_local.keys():
-                try:
 
-                    tlx, tly, brx, bry, w, h = fire_local.get(count)[0][0], fire_local.get(count)[0][1], fire_local.get(count)[1][0], fire_local.get(count)[1][1],\
-                                                fire_local.get(count)[2], fire_local.get(count)[3]
-
-                    fire_range_1 = oneeye(tlx, tly) # BUG
-                    fire_range_2 = oneeye(brx, bry)
-
-                    fire_range_temp = []
-                    fire_range_temp.append(fire_range_1[0])
-                    fire_range_temp.append(fire_range_1[1])
-                    fire_range_temp.append(fire_range_2[0])
-                    fire_range_temp.append(fire_range_2[1])
-                    fire_range_temp = np.array(fire_range_temp)
-                    fire_range.update({count : [[tlx, tly, brx, bry],fire_range_temp, w, h]})
-                    mask_fire = cv2.rectangle(mask_fire, fire_local.get(count)[0], fire_local.get(count)[1], (0,255,0), 5)
-                except:
+                if count == fire_frame and left_bbox is not None:
+                    cv2.rectangle(mask_fire, (left_bbox[0],left_bbox[1]), (left_bbox[2],left_bbox[3]), (0,255,0), 2)
+                    cv2.putText(mask_fire, str(W)[:4], (left_bbox[0],left_bbox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1) # TODO: 显示带有边长的框，数字居中显示
+                    cv2.putText(mask_fire, str(H)[:4], (left_bbox[2],left_bbox[3]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                else:
                     mask_fire = np.zeros_like(old_frame)
 
             result_img = frame
             result_img = cv2.add(result_img, mask_track)
             result_img = cv2.add(result_img, mask_fire)
+
             videoWriter.write(result_img)
+            if count == fire_frame :
+                for i in range(100):
+                    videoWriter.write(result_img)
             print('visualizing fire-----> fire_index_start:',fire_index, 'fire_index_end:',fire_index_max, 'cur_index:',count)
             count += 1
 

@@ -466,7 +466,7 @@ def show_bbox(path_, max_bbox_index, left_bbox):
     return imgl
 
 def get_max_bbox(path, dict_, dict2_):
-    """_summary_
+    """在左相机中找最大bbox
 
     Args:
         dict_ (dict[narray]): fire info in every frame
@@ -479,8 +479,11 @@ def get_max_bbox(path, dict_, dict2_):
             (4,) for a bbox:[xl,yl,xr,yr]
         pixel_distance_of_high: the pixel distance of the height of bbox in left camera
             (1,) for a bbox  
+        bbox: the largetest bbox
+            (narray) for a bbox 
+        frame: the index of the largetest bbox
+            (int)
     """
-    # 在做相机中找最大bbox
     cap = cv2.VideoCapture(path.split(',')[0])
     ret, frame = cap.read()
     cap.release()
@@ -512,7 +515,7 @@ def get_max_bbox(path, dict_, dict2_):
         cv2.imshow('left',imgl_bbox)
         cv2.imshow('right', imgr_bbox)
 
-    return fire_left, fire_right, pixel_distance_of_high
+    return fire_left, fire_right, pixel_distance_of_high, left_bbox, max_bbox_index
    
 
 def show_video(video_path, window_name, times = 1):

@@ -207,6 +207,11 @@ class video_rectify_double:
         out.release()
         pass
     def rectify_video_double(self):
+        """矫正拼接视频，并输出拼接视频
+
+        Raises:
+            StopIteration: _description_
+        """
         # 读取视频
         assert osp.isfile(self.left_path) == True
         cap_l = cv2.VideoCapture(self.left_path)
@@ -217,7 +222,7 @@ class video_rectify_double:
         fps = cap_l.get(cv2.CAP_PROP_FPS)
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(save_p, fourcc, fps, (int(w), int(h)))
-        print('save >>>', save_p )
+        print('Fun rectify_video_double save >>>', save_p )
 
         # 获取矫正后的图片
         while cap_l.isOpened():
