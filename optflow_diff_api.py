@@ -300,7 +300,7 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
             mask_track = np.zeros_like(old_frame)
             # 将光流追踪点最上方的点和火焰边框中心点连线作为XX运行轨迹
             mask_track = cv2.line(mask_track, (int(x_dd),int(y_dd)), (int(x_fire), int(y_fire)), (255,255,255), 2)
-            mask_track = cv2.circle(mask_track, (int(x_fire), int(y_fire)), 20, (0,0,255), -1)
+            mask_track = cv2.circle(mask_track, (int(x_fire), int(y_fire)), 9, (0,0,255), -1)
 
             result_img = frame
             result_img = cv2.add(result_img, mask_track)
