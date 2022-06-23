@@ -4,7 +4,7 @@ import cv2
 from cv2 import CALIB_CB_ACCURACY
 from cv2 import CALIB_ZERO_DISPARITY
 import numpy as np
-import  calibration.param_0531 as stereoconfig_040_2   #导入相机标定的参数
+import  calibration.param_0622 as stereoconfig_040_2   #导入相机标定的参数
 import argparse
 import torch
 import torch.nn as nn
@@ -308,68 +308,38 @@ if __name__ == '__main__':
     i = 3
     string = 're'
     # 读取数据集的图片
-    iml = cv2.imread(r'data\0601\WIN_20220601_08_57_15_Pro.jpgleft.png', 1)  # 左图
-    imr = cv2.imread(r'data\0601\WIN_20220601_08_57_15_Pro.jpgright.png', 1)  # 右图
-    height, width = iml.shape[0:2]
-
-    print("width = %d \n"  % width)
-    print("height = %d \n" % height)
-    
-
-    # 读取相机内参和外参
     config = stereoconfig_040_2.stereoCamera()
-
-    # 立体校正
-    map1x, map1y, map2x, map2y, Q = getRectifyTransform(height, width, config)  # 获取用于畸变校正和立体校正的映射矩阵以及用于计算像素空间坐标的重投影矩阵
-    iml_rectified, imr_rectified = rectifyImage(iml, imr, map1x, map1y, map2x, map2y)
-
-    print("Print Q!")
-    print(Q)
-
-    # 绘制等间距平行线，检查立体校正的效果
-    line_rec = draw_line(iml_rectified, imr_rectified)
-    line = draw_line(iml, imr)
-    cv2.imwrite('depth_0531_17_07.png' ,  np.concatenate((line, line_rec), axis = 0))
-
-    iml_rectified_l, imr_rectified_r = rectifyImage(iml, imr, map1x, map1y, map2x, map2y)
-    cv2.imwrite('templ.png', iml_rectified_l)
-    cv2.imwrite('tempr.png', imr_rectified_r)
-    disp_dl  = main('templ.png','tempr.png')
-    disp, _ = stereoMatchSGBM(iml_rectified_l, imr_rectified_r, down_scale= False, up_scale=False) 
-    cv2.imwrite('dispart.png',np.concatenate((disp,disp_dl),axis=0).astype(np.uint8))
-    # 计算像素点的3D坐标（左相机坐标系下）
-    points_3d = cv2.reprojectImageTo3D(disp, Q)  # 可以使用上文的stereo_config.py给出的参数
-    points_3d_dl = cv2.reprojectImageTo3D(disp_dl, Q)
-    global last_point
-    last_point = [0,0,0] # 记录上一次点击的点（用于和下个点计算）
-    global last_point_dl
-    last_point_dl = [0,0,0] # 记录上一次点击的点（用于和下个点计算）
-    # 鼠标点击事件
-    def onMouse(event, x, y, flags, param):
-        global last_point
-        global last_point_dl
-        if event == cv2.EVENT_LBUTTONDOWN:
-
-            print('点 (%d, %d) 的三维坐标 (%f, %f, %f)' % (x, y, points_3d[y, x, 0], points_3d[y, x, 1], points_3d[y, x, 2]))
-            print('点 (%d, %d) 的三维坐标 (%f, %f, %f)' % (x, y, points_3d_dl[y, x, 0], points_3d_dl[y, x, 1], points_3d_dl[y, x, 2]))
-
-            dis = ( (points_3d[y, x, 0] ** 2 + points_3d[y, x, 1] ** 2 + points_3d[y, x, 2] **2) ** 0.5) / 1000
-            dis_dl = ( (points_3d_dl[y, x, 0] ** 2 + points_3d_dl[y, x, 1] ** 2 + points_3d_dl[y, x, 2] **2) ** 0.5) / 1000
-            print('点 (%d, %d) 距离左摄像头的相对距离为:(1) %0.3f m; (2) %0.3f m ' %(x, y, dis, dis_dl) )
-        if event == cv2.EVENT_LBUTTONDOWN:
-
-            print_function(dis, last_point, points_3d, x, y)
-            print_function(dis_dl, last_point_dl, points_3d_dl, x, y )
-            # 更新点
-            last_point_dl = [points_3d_dl[y, x, 0], points_3d_dl[y, x, 1], points_3d_dl[y, x, 2]]
-            last_point = [points_3d[y, x, 0], points_3d[y, x, 1], points_3d[y, x, 2]]
-        # 显示图片
-    # image=cv2.imread('templ.png',2) 
-    image1=cv2.applyColorMap(disp_dl.astype(np.uint8), cv2.COLORMAP_JET) * 0.4 + 0.6 * cv2.imread('templ.png') 
-
-    disp_show = iml_rectified_l
-    cv2.namedWindow("disparity",0)
-    cv2.imshow("disparity", image1.astype(np.uint8))
-    cv2.setMouseCallback("disparity", onMouse, 0)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if 1 ==2:
+        cap = cv2.VideoCapture(0)
+        cap.set(cv2.CAP_PROP_FPS, 50)
+        cap.set(3, 1280)  # width=1920
+        cap.set(4, 480)   # height=1080     
+        ret, frame = cap.read()
+        height, width = frame.shape[0:2]
+        while(1):
+            # get a frame
+            ret, frame = cap.read()
+            # show a frame
+            iml = frame[:,int(width/2):,:]
+            imr = frame[:,:int(width/2),:]
+            map1x, map1y, map2x, map2y, Q = getRectifyTransform(height, int(width/2), config)  # 获取用于畸变校正和立体校正的映射矩阵以及用于计算像素空间坐标的重投影矩阵
+            iml_rectified, imr_rectified = rectifyImage(iml, imr, map1x, map1y, map2x, map2y) 
+            line_rec = draw_line(iml_rectified, imr_rectified)
+                
+            cv2.imshow("capture", line_rec)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break  
+        cap.release()
+    else:
+        frame = cv2.imread(r'E:\temp\1.jpg')
+        # ret, frame = cap.read()
+            # show a frame
+        height, width = frame.shape[0:2]
+        iml = frame[:,int(width/2):,:]
+        imr = frame[:,:int(width/2),:]
+        map1x, map1y, map2x, map2y, Q = getRectifyTransform(height, int(width/2), config)  # 获取用于畸变校正和立体校正的映射矩阵以及用于计算像素空间坐标的重投影矩阵
+        iml_rectified, imr_rectified = rectifyImage(iml, imr, map1x, map1y, map2x, map2y) 
+        line_rec = draw_line(iml_rectified, imr_rectified)
+        cv2.imwrite('rec.png', line_rec)
+        a = 1
+        
