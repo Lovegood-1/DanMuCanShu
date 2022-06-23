@@ -46,7 +46,9 @@ def camera2word(realstart_x, realstart_y, realstart_z):
         cv2.circle(img, (int(nose_end_point2D[0,0,0]), int(nose_end_point2D[0,0,1])), 3, (0,0,255), -1)
         cv2.circle(img, (int(nose_end_point2D2[0,0,0]), int(nose_end_point2D2[0,0,1])), 3, (0,255,255), -1)
         cv2.circle(img, (int(nose_end_point2D3[0,0,0]), int(nose_end_point2D3[0,0,1])), 3, (0,0,255), -1)
-    return np.linalg.inv(R_M) @ camera_cor
+    word_cord =  np.linalg.inv(R_M) @ camera_cor
+
+    return np.array(word_cord[0,0]), np.array(word_cord[0,0]), np.array(word_cord[0,0])
 if __name__=='__main__':
 
 

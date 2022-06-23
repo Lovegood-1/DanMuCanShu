@@ -11,6 +11,7 @@ import time
 from utils.torch_utils import get_max_bbox, show_video
 # os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 import webbrowser
+from utils.to_word_cord import camera2word
 def video_preprocess(path, out1, out2):
     # 将双目相机拍摄的视频裁切开，处理完之后进行保存
 
@@ -335,6 +336,7 @@ if __name__=='__main__':
 
     # print('▅'*80,'Step7： Saving txt information')
     # Add Text
+    fire_x, fire_y, fire_z = camera2word(fire_x, fire_y, fire_z)
     radium_list, height_list = [W/2], [H]
     WriteText(fire_x[0], fire_y[0], fire_z[0], radium_list, height_list, 
                     speed, angle_qing, angle_pian, angle_pian_direction)
