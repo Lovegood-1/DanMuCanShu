@@ -22,29 +22,7 @@ help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.dng']
 vid_formats = ['.mov', '.avi', '.mp4', '.mpg', '.mpeg', '.m4v', '.wmv', '.mkv']
 
-def create_rgb_cam_pipeline():
-    print("Creating pipeline: RGB CAM -> XLINK OUT")
-    pipeline = dai.Pipeline()
 
-    cam          = pipeline.create(dai.node.ColorCamera)
-    xout_preview = pipeline.create(dai.node.XLinkOut)
-    xout_video   = pipeline.create(dai.node.XLinkOut)
-
-    cam.setPreviewSize(540, 540)
-    cam.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
-    cam.setInterleaved(False)
-    cam.setBoardSocket(dai.CameraBoardSocket.RGB)
-
-    xout_preview.setStreamName('rgb_preview')
-    xout_video  .setStreamName('rgb_video')
-
-    cam.preview.link(xout_preview.input)
-    cam.video  .link(xout_video.input)
-
-    streams = [ 'rgb_video']
-
-    return pipeline, streams
-# Get orientation exif tag
 for orientation in ExifTags.TAGS.keys():
     if ExifTags.TAGS[orientation] == 'Orientation':
         break
@@ -325,7 +303,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
             _, self.imgs[index] = cap.retrieve()
             # n = 0
             # time.sleep(0.01)  # wait time
-            # 在事件发生之前放入一个队列，在发生之后放入另一个
+            # 在事件发生时候，把当前存下来的录像放入一个队列，在发生之后把当前存放的放入另一个
             if self.event is True:
                 if self.finish == False:
                     self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'after', self.names_video)

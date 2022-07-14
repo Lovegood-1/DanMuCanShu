@@ -16,7 +16,7 @@ from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages, LoadStreams_OTA
 from utils.general import (
     check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
-from utils.torch_utils import select_device, load_classifier, time_synchronized, build_queue, save_frame_to_q, build_multi_queue,save_muitl_frame_to_q_k,save_multi_video, AutoQueue, event_happend,  Queue_list
+from utils.torch_utils import interval_happend, select_device, load_classifier, time_synchronized, build_queue, save_frame_to_q, build_multi_queue,save_muitl_frame_to_q_k,save_multi_video, AutoQueue, event_happend,  Queue_list
 
 """
 无多线程
@@ -52,6 +52,7 @@ def thread_webfunction():
             opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size
         webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
         rtsp = ''
+
         # Initialize
         device = select_device(opt.device)
         if os.path.exists(out):
@@ -67,11 +68,6 @@ def thread_webfunction():
 
         # Second-stage classifier
         classify = False
-        if classify:
-            modelc = load_classifier(name='resnet101', n=2)  # initialize
-            modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model'])  # load weights
-            modelc.to(device).eval()
-
 
         # Get names and colors
         names = model.module.names if hasattr(model, 'module') else model.names
@@ -88,6 +84,7 @@ def thread_webfunction():
         else:
             save_img = True
             dataset = LoadImages(source, img_size=imgsz)
+
         # some values initailization
         seconds = 3
         save_video = False
@@ -96,13 +93,6 @@ def thread_webfunction():
         T1 = time.perf_counter()
         T_fire = -1
         q_fire =  Queue_list(10) # 用于存储前10帧的火焰bbox
-
-        # NEW: DEVICE SETTIING
-        
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        
-
-        size = dataset.size
         FPS = dataset.fps
         for path, img, im0s, vid_cap in dataset:
             img = torch.from_numpy(img).to(device)
@@ -118,10 +108,6 @@ def thread_webfunction():
             # Apply NMS
             pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
             t2 = time_synchronized()
-
-            # Apply Classifier
-            if classify:
-                pred = apply_classifier(pred, modelc, img, im0s)
 
             # Process detections
             largest_bbox = [] # to store the largest bbox of fire in current frame
@@ -151,7 +137,6 @@ def thread_webfunction():
                         if cls  != 0:
                             continue
                         # calculate the largest bbox
-                        
                         wh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4))).view(-1).tolist()[-2:]
                         if wh[0] * wh [1] > largest_bbox_area:
                             largest_bbox = torch.tensor(xyxy).view(1, 4).tolist()[0]
@@ -167,11 +152,11 @@ def thread_webfunction():
 
                 # Print time (inference + NMS)
                 print('%sDone. (%.3fs)' % (s, t2 - t1))
+            T_fire = time.perf_counter()  
 
-                # Stream results
+            # Stream results
             if view_img:
                 text_ = "%.1f"%((T2 - T1) *1.0)
-
                 if save_video  == True:
                     text_ = 'Saving Video ' + text_
                 cv2.putText(im0, text_,(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
@@ -182,29 +167,31 @@ def thread_webfunction():
                 b'Content-Type: image/jpeg\r\n\r\n' + image + b'\r\n')
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
-                if cv2.waitKey(1) & 0xFF == ord('s'): # press s to force save video
+                if cv2.waitKey(1) & 0xFF == ord('s'): # s to force save video
                     dataset.event = True
                     save_video = True
-                    T_fire = time.perf_counter()
+                    # T_fire = time.perf_counter()
                     print('sssssssssssssssss')
             q_fire.auto_put(largest_bbox) # 放每帧的bbox
+
+            # 进入保存视频状态的条件：一个函数，一个变量
             if event_happend(q_fire) and save_video == False: # [x]BUG: this 'if' only excute once ! 
                 save_video = True
-                T_fire = time.perf_counter()  
-            if 1 == 1:
-                
-                if camera_device == 'OTA':
-                    vid_cap['rgb_video'] = im0
-                if T_fire != -1: #  only save after fire
-                    dataset.event = True
-                    if (T2 - T_fire) < seconds:
-                        
-                        q = save_muitl_frame_to_q_k(q, vid_cap, 'after', names_video)
-                    else:
-                        dataset.finish = True
-                        break
+                # T_fire = time.perf_counter()  
+
+            # 如果在保存视频，但是已经10f没有火焰了，则认为间隔发生
+            if  interval_happend(q_fire):
+                save_video = False
+             
+            if T_fire != -1: #  only save after fire
+                dataset.event = True
+                if (T2 - T_fire) < seconds:
+                    q = save_muitl_frame_to_q_k(q, vid_cap, 'after', names_video)
                 else:
-                    q = save_muitl_frame_to_q_k(q, vid_cap, 'before', names_video)
+                    dataset.finish = True
+                    break
+            else:
+                q = save_muitl_frame_to_q_k(q, vid_cap, 'before', names_video)
                     
         
         if save_txt or save_img:

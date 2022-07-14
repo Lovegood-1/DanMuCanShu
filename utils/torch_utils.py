@@ -1,5 +1,6 @@
 import math
 import os
+from pickle import FALSE
 import time
 import logging
 from copy import deepcopy
@@ -370,13 +371,34 @@ class AutoQueue:
             self.q.put(element)
 
 def event_happend(q_list):
+    """判断事件是否发生
 
+    Args:
+        q_list (_type_): 包括
+
+    Returns:
+        _type_: _description_
+    """
     happend = True
-    for frame in q_list.list:
+    for frame in q_list.list: # 当10帧都有火焰才任务事件发生了。
         if len(frame) == 0:
             happend = False
     return happend
 
+def interval_happend(q_list):
+    """判断事件是否间隔
+
+    Args:
+        q_list (_type_): 包括
+
+    Returns:
+        _type_: _description_
+    """
+    happend = True
+    for frame in q_list.list: # 当10帧都没有火焰才任务事件发生了:。
+        if len(frame) != 0:
+            happend = False
+    return happend
 
 def cal_xyz_from_uv(x,y,disp,Q):
     """
