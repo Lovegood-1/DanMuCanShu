@@ -295,21 +295,20 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def update(self, index, cap):
         # Read next stream frame in a daemon thread
         n = 0
+        star_after_time = 0 # 记录开始的时间
         while cap.isOpened():
-            # n += 1
-            # _, self.imgs[index] = cap.read()
             cap.grab()
-            # if n == 1:  # read every 4th frame
             _, self.imgs[index] = cap.retrieve()
-            # n = 0
-            # time.sleep(0.01)  # wait time
-            # 在事件发生时候，把当前存下来的录像放入一个队列，在发生之后把当前存放的放入另一个
+            # 决定把图像放在哪个队列里。在事件发生时候，把当前存下来的录像放入一个队列，在发生之后把当前存放的放入另一个
             if self.event is True:
-                if self.finish == False:
+                # 记录保存的时间
+                if time.perf_counter - star_after_time < 1.5:
                     self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'after', self.names_video)
                 else:
+                    print("结束保存视频%.3f" % time.perf_counter - star_after_time)
                     break
             else:
+                star_after_time = time.perf_counter()
                 self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'before', self.names_video)
             # 
         save_multi_video(self.q, self.fourcc, self.fps, (self.size[0] *2, self.size[1]), self.names_video) # BUG 0601
