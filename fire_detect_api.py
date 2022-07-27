@@ -238,12 +238,7 @@ if __name__=='__main__':
 
 
     root = 'video\\' 
-
-    # # # 直播检测，保存视频 # 当前版本不用
-    # from detect_OTA import detect  
-    # detect()
-
-    # # 矫正视频，输出拼接的视频
+    # TODO:第一部分视频矫正，这个我来写。
     import  calibration.param_0531 as stereoconfig
     from utils.video_rectify import video_rectify_double
     left_video = os.path.join(root,'camera_rgb_double.avi')
@@ -252,7 +247,6 @@ if __name__=='__main__':
     Video.rectify_video_double()
     rebuild = Video.triangulation
 
-    
     path = root+'camera_rgb_double_rectify_all_.avi'
     out1 = root+'camera_leftrectify.avi'
     out2 = root+'camera_rightrectify.avi'
@@ -260,9 +254,14 @@ if __name__=='__main__':
     print('▅'*80,'Step1： Video Preprocess')
     video_preprocess(path, out1, out2)
 
-    print('▅'*80,'Step2： Finding Fire by YOLO')
-    dict1, dict_all1, dict2, dict_all2, W, H, left_bbox, fire_frame = localization2(out1 + ',' + out2, Video)
 
+    # TODO: 火焰定位
+    print('▅'*80,'Step2： Finding Fire by YOLO')
+    dict1, dict_all1, dict2, dict_all2, W, H, left_bbox, fire_frame = localization2(out1 + ',' + out2, Video) # 多个路径
+    # -------------------- 以上第一部分封装 --------------
+    # [{'name':0721, "one":path1; "two": path2;"dict1"}]
+
+    # TODO: 导弹定位
     print('▅'*80,'Step3： Tracking Object for Video1')
     track_index1, track_location1, result_path1, fire_range1, x_fire1, y_fire1 = \
                                                     video_process(root, out1, dict1, dict_all1, W = W, H = H,  left_bbox = left_bbox, fire_frame= fire_frame)
@@ -274,14 +273,14 @@ if __name__=='__main__':
     print('▅'*80,'Step5： Smoothing Tracked Points')
     startpoint1, endpoint1, startpoint2, endpoint2 = -1,-1,-1,-1
     startindex, endindex = -1,-1
-
-    for i1, l1 in zip(track_index1, track_location1):
+    # 获得导弹的初始点，同时确保帧的序号是对齐的
+    for i1, l1 in zip(track_index1, track_location1): # track_index: list, save the indexs of frame where moving objects appear
         index = np.where(track_index2==i1)
-        if index[0].shape[0]==1:
+        if index[0].shape[0]==1: # 如果有单个点
             startindex = i1
             startpoint1, startpoint2 = l1, track_location2[index[0][0]]
             break
-        if index[0].shape[0]>1:
+        if index[0].shape[0]>1: # 如果一帧有多个动点
             sub_points = track_location2[index[0]]
             dis_list = np.abs(sub_points[:,0]-l1[0])+np.abs(sub_points[:,1]-l1[1])
             min_index = np.argmin(dis_list)
@@ -290,6 +289,8 @@ if __name__=='__main__':
             startpoint1, startpoint2 = l1, track_location2[index[0][min_index]]
             break
 
+        
+    # 获得导弹的结束点，同时确保帧的序号是对齐的
     track_index1, track_location1 = track_index1[::-1], track_location1[::-1]
     for i1, l1 in zip(track_index1, track_location1):
         index = np.where(track_index2==i1)
@@ -318,8 +319,7 @@ if __name__=='__main__':
     # for i, l in zip(track_index2,track_location2):
     #     if l[1]>ymin: ymin=l[1]; t_index2.append(i); t_location2.append(l);
     time.sleep(0.5)
-    # show_video(out1,window_name=window_name) # 接着显示处理后的视频
-    # show_video(out2, window_name)
+
     print('▅'*80,'Step5： Rebuilding Coordinates')
     fire_x, fire_y, fire_z = rebuild(x_fire1, y_fire1, x_fire2, y_fire2)
     realstart_x, realstart_y, realstart_z = rebuild(startpoint1[0], startpoint1[1], startpoint2[0], startpoint2[1])
@@ -338,14 +338,20 @@ if __name__=='__main__':
     # Add Text
     fire_x, fire_y, fire_z = camera2word(fire_x, fire_y, fire_z)
     radium_list, height_list = [W/2], [H]
+
+
+    # -------------------- 以上第二部分封装 --------------
+
+
+
     WriteText(fire_x[0], fire_y[0], fire_z[0], radium_list, height_list, 
                     speed, angle_qing, angle_pian, angle_pian_direction)
     print('{} processed !'.format(result_path1))
     WriteText(fire_x[0], fire_y[0], fire_z[0], radium_list, height_list, 
                     speed, angle_qing, angle_pian, angle_pian_direction)
     print('{} processed !'.format(result_path2))
+    
     # 自动显示后处理结果
-
     time.sleep(1)
     web_path = 'http://localhost:8088/danmu.html'
     print('打开网页', web_path)
