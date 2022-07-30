@@ -4,20 +4,21 @@
 #!/usr/bin/env python3
 # coding:utf-8
 import cv2
+from matplotlib import image
 import numpy as np
 import time
 from PIL import Image,ImageTk
-import threading
-import os
-import re    
-import subprocess
-import random
+# import threading
+# import os
+# import re    
+# import subprocess
+# import random
 import math
 import csv
 import argparse
 
 class PNPSolver(): 
-    def __init__(self):
+    def __init__(self,  size_wh = (4.96, 3.72), imageWH = (1920,1080), img_path = r'', camera_id = '192.168.0.2'):
         self.COLOR_WHITE = (255,255,255)
         self.COLOR_BLUE = (255,0,0)
         self.COLOR_LBLUE = (255, 200, 100)
@@ -33,6 +34,10 @@ class PNPSolver():
         self.cameraMatrix = None
         self.distCoefs = None
         self.f = 0
+        self.img_path = img_path
+        self.size_wh = size_wh
+        self.imageWH = imageWH
+        self.camera_id = camera_id
 
     def rotationVectorToEulerAngles(self, rvecs, anglestype):
         R = np.zeros((3, 3), dtype=np.float64)
@@ -118,16 +123,17 @@ class PNPSolver():
         point = np.array([xc,yc,zc])
         return point
 
-    def getudistmap(self, filename):
+    def getudistmap2(self, filename):
         with open(filename, 'r',newline='') as csvfile:
             spamreader = csv.reader(csvfile, delimiter=',', quotechar='"')
             rows = [row for row in spamreader]
             self.cameraMatrix = np.zeros((3, 3))
             #Dt = np.zeros((4, 1))
-            size_w = 23.6
-            size_h = 15.6
-            imageWidth = int(rows[0][1])
-            imageHeight = int(rows[0][2])
+            size_w = 4.96 # TODO
+            size_h = 3.72
+
+            imageWidth = 1920
+            imageHeight = 1080
             self.cameraMatrix[0][0] = rows[1][1]
             self.cameraMatrix[1][1] = rows[1][2]
             self.cameraMatrix[0][2] = rows[1][3]
@@ -156,7 +162,57 @@ class PNPSolver():
             print('Dt = \n', self.distCoefs)
             self.f = [self.cameraMatrix[0][0]*(size_w/imageWidth), self.cameraMatrix[1][1]*(size_h/imageHeight)]
             print('f = \n', self.f)
-            return
+            return 0
+
+    def getudistmap(self, filename = r'calibration\cameraParams_new0727.mat'):
+        from calibration.load_cameraParams import load_mat
+        # spamreader = csv.reader(csvfile, delimiter=',', quotechar='"')
+        params = load_mat(filename)
+        # rows = [row for row in spamreader]
+        self.cameraMatrix = np.zeros((3, 3))
+        try:
+            size_w = self.size_wh[0]
+            size_h = self.size_wh[-1]
+            imageWidth = self.imageWH[0]
+            imageHeight = self.imageWH[-1]
+        except:
+            size_w = 4.96  
+            size_h = 3.72
+            imageWidth = 1920
+            imageHeight = 1080
+
+        self.cameraMatrix[0][0] = params['IntrinsicMatrix'][0][0][0,0]
+        self.cameraMatrix[1][1] = params['IntrinsicMatrix'][0][0][1,1]
+        self.cameraMatrix[0][2] = params['IntrinsicMatrix'][0][0][2,0]
+        self.cameraMatrix[1][2] = params['IntrinsicMatrix'][0][0][2,1]
+        self.cameraMatrix[2][2] = 1
+        self.distCoefs = np.zeros((1, 5))
+        self.distCoefs[0][0] = params['RadialDistortion'][0][0][0][0]
+        self.distCoefs[0][1] = params['RadialDistortion'][0][0][0][1]
+        self.distCoefs[0][2] = params['TangentialDistortion'][0][0][0][0]
+        self.distCoefs[0][3] = params['TangentialDistortion'][0][0][0][0]
+        self.distCoefs[0][4] = 0  
+        print('dim = %d*%d'%(imageWidth, imageHeight))
+        print('Kt = \n', self.cameraMatrix)
+        print('Dt = \n', self.distCoefs)
+        self.f = [self.cameraMatrix[0][0]*(size_w/imageWidth), self.cameraMatrix[1][1]*(size_h/imageHeight)]
+        print('f = \n', self.f)
+        return 0
+
+    def show_2dpoints(self, img = None, final_3dpoint = -1):
+        if  img is None:
+            img = cv2.imread(self.img_path)
+            for num_ in range(self.Points2D.shape[1]): # 画原来的点
+                cv2.circle(img, (int(self.Points2D[0,num_,0]), int(self.Points2D[0,num_,1])), 3, (0,0,255), -1)
+                nose_end_point, jacobian = cv2.projectPoints(self.Points3D[0,num_], self.rvec, self.tvec,  self.cameraMatrix, self.distCoefs)
+                cv2.circle(img, (int(nose_end_point[0,0,0]), int(nose_end_point[0,0,1])), 3, (255,255,255), -1)
+            
+            return img
+        else:
+            cv2.circle(img, (int(self.point2find[0]), int(self.point2find[1])), 3, (0 , 255 , 0), -1) # 要找的点（像素）
+            nose_end_point, jacobian = cv2.projectPoints(final_3dpoint, self.rvec, self.tvec,  self.cameraMatrix, self.distCoefs) # 要找的点（真实）
+            cv2.circle(img, (int(nose_end_point[0,0,0]), int(nose_end_point[0,0,1])), 3, (100 , 255 , 100), -1)
+            return img
 
 class GetDistanceOf2linesIn3D():
     def __init__(self):
@@ -225,68 +281,57 @@ if __name__ == "__main__":
     parser.add_argument('-file', type=str, default = 'calibration.csv')
     args = parser.parse_args()
     calibrationfile = args.file
+    # 1. 建立对象，第一幅图片中的像素坐标和三维坐标
+    p4psolver1 = PNPSolver(r'calibration\v1.png')
 
-    p4psolver1 = PNPSolver()
-    '''
     P11 = np.array([0, 0, 0])
-    P12 = np.array([0, 200, 0])
-    P13 = np.array([150, 0, 0])
-    P14 = np.array([150, 200, 0])
-    p11 = np.array([2985, 1688])
-    p12 = np.array([5081, 1690])
-    p13 = np.array([2997, 2797])
-    p14 = np.array([5544, 2757])
-    '''
-    P11 = np.array([0, 0, 0])
-    P12 = np.array([0, 300, 0])
-    P13 = np.array([210, 0, 0])
-    P14 = np.array([210, 300, 0])    
-    p11 = np.array([1765, 725])
-    p12 = np.array([3068, 1254])
-    p13 = np.array([1249, 1430])
-    p14 = np.array([2648, 2072]) 
+    P12 = np.array([0, 13840, 0])
+    P13 = np.array([5500, 24840, 0])
+    P14 = np.array([16500, 13840, 0])    
+    p11 = np.array([207, 876])
+    p12 = np.array([699,778])
+    p13 = np.array([1087, 727])
+    p14 = np.array([1681, 684]) 
 
     p4psolver1.Points3D[0] = np.array([P11,P12,P13,P14])
     p4psolver1.Points2D[0] = np.array([p11,p12,p13,p14])
-    #p4psolver1.point2find = np.array([4149, 671])
-    #p4psolver1.point2find = np.array([675, 835])
-    p4psolver1.point2find = np.array([691, 336])
+    p4psolver1.point2find = np.array([895, 736])
     p4psolver1.getudistmap(calibrationfile)
     p4psolver1.solver()
+    img = p4psolver1.show_2dpoints()
 
-    p4psolver2 = PNPSolver()
-    '''
+
+
+    # 2. 第二幅图中的像素坐标和三维坐标
+    p4psolver2 = PNPSolver(r'calibration\v2.png')
     P21 = np.array([0, 0, 0])
-    P22 = np.array([0, 200, 0])
-    P23 = np.array([150, 0, 0])
-    P24 = np.array([150, 200, 0])
-    p21 = np.array([3062, 3073])
-    p22 = np.array([3809, 3089])
-    p23 = np.array([3035, 3208])
-    p24 = np.array([3838, 3217])
-    '''
-    P21 = np.array([0, 0, 0])
-    P22 = np.array([0, 300, 0])
-    P23 = np.array([210, 0, 0])
-    P24 = np.array([210, 300, 0])  
-    p21 = np.array([1307, 790])
-    p22 = np.array([2555, 797])
-    p23 = np.array([1226, 1459])
-    p24 = np.array([2620, 1470])
+    P22 = np.array([0,  13840, 0])
+    P23 = np.array([16500, 13840, 0])
+    P24 = np.array([20000, 0, 0])  
+    p21 = np.array([168, 728])
+    p22 = np.array([750, 697])
+    p23 = np.array([1065, 700])
+    p24 = np.array([582, 739])
 
     p4psolver2.Points3D[0] = np.array([P21,P22,P23,P24])
     p4psolver2.Points2D[0] = np.array([p21,p22,p23,p24])
-    #p4psolver2.point2find = np.array([3439, 2691])
-    #p4psolver2.point2find = np.array([712, 1016])
-    p4psolver2.point2find = np.array([453, 655])
+    p4psolver2.point2find = np.array([1069, 675])
     p4psolver2.getudistmap(calibrationfile)
     p4psolver2.solver()
-
+    img2 = p4psolver2.show_2dpoints()
+ 
+    # 3 向量：相机点->未知点 的世界坐标 a2
+    cv2.namedWindow('2',0)
+    cv2.imshow('2',img2)
+    # cv2.waitKey()
+    # cv2.destroyAllWindows()    
+    cv2.namedWindow('1',0)
+    cv2.imshow('1',img)
+    cv2.waitKey()
+    cv2.destroyAllWindows()  
     point2find1_CF = p4psolver1.ImageFrame2CameraFrame(p4psolver1.point2find)
-    #Oc1P_x1 = point2find1_CF[0]
-    #Oc1P_y1 = point2find1_CF[1]
-    #Oc1P_z1 = point2find1_CF[2]
     Oc1P_1 = np.array(point2find1_CF)
+
     print(Oc1P_1)
 
     Oc1P_1[0], Oc1P_1[1] = p4psolver1.CodeRotateByZ(Oc1P_1[0], Oc1P_1[1], p4psolver1.Theta_W2C[2])
@@ -295,13 +340,10 @@ if __name__ == "__main__":
 
     a1 = np.array([p4psolver1.Position_OcInWx, p4psolver1.Position_OcInWy, p4psolver1.Position_OcInWz])
     a2 =  a1 + Oc1P_1
-    #a2 = (p4psolver1.Position_OcInWx + Oc1P_1[0], p4psolver1.Position_OcInWy + Oc1P_y1, p4psolver1.Position_OcInWz + Oc1P_z1)
-
-
+ 
+    # 4 向量：相机点->未知点 的世界坐标 b2
     point2find2_CF = p4psolver2.ImageFrame2CameraFrame(p4psolver2.point2find)
-    #Oc2P_x2 = point2find2_CF[0]
-    #Oc2P_y2 = point2find2_CF[1]
-    #Oc2P_z2 = point2find2_CF[2]
+ 
     Oc2P_2 = np.array(point2find2_CF)
     print(Oc2P_2)
 
@@ -311,8 +353,8 @@ if __name__ == "__main__":
 
     b1 = ([p4psolver2.Position_OcInWx, p4psolver2.Position_OcInWy, p4psolver2.Position_OcInWz])
     b2 = b1 + Oc2P_2
-    #b2 = (p4psolver2.Position_OcInWx + Oc2P_x2, p4psolver2.Position_OcInWy + Oc2P_y2, p4psolver2.Position_OcInWz + Oc2P_z2)
-    
+
+    # 5 计算两个直线的最近点
     g = GetDistanceOf2linesIn3D()
     g.SetLineA(a1[0], a1[1], a1[2], a2[0], a2[1], a2[2])
     g.SetLineB(b1[0], b1[1], b1[2], b2[0], b2[1], b2[2])
@@ -322,8 +364,14 @@ if __name__ == "__main__":
     pt = (g.PonA + g.PonB)/2
 
     print(pt)
-
-
+    img = p4psolver1.show_2dpoints(img, pt)
+    img2 = p4psolver2.show_2dpoints(img2, pt)
+    cv2.namedWindow('1',0)
+    cv2.imshow('1',img)
+    cv2.namedWindow('2',0)
+    cv2.imshow('2',img2)
+    cv2.waitKey()
+    cv2.destroyAllWindows()
     A = np.array([241.64926392,-78.7377477,166.08307887])
     B = np.array([141.010851,-146.64449841,167.28164652])
     print(math.sqrt(np.dot(A-B,A-B)))
