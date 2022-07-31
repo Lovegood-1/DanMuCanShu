@@ -1,6 +1,7 @@
 import glob
 import math
 import os
+import re
 import random
 import shutil
 import subprocess
@@ -1431,3 +1432,47 @@ class WebCamera:
                 raise ValueError # do not supper disparty
         return frame
 
+def is_ip(ipAddr):
+    check_ip=re.compile('^(1\d{2}|2[0-4]\d|25[0-5]|[1-9]\d|[1-9])\.(1\d{2}|2[0-4]\d|25[0-5]|[1-9]\d|\d)\.(1\d{2}|2[0-4]\d|25[0-5]|[1-9]\d|\d)\.(1\d{2}|2[0-4]\d|25[0-5]|[1-9]\d|\d)$')
+    if check_ip.match(ipAddr):
+        return True
+    else:
+        return False
+
+def frist_fire_info(dict_):
+    """获取火焰出现的第一帧
+
+    Args:
+        dict_ (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    for key, value in dict_.items():
+        # print(key.type)
+        for v in value:
+            v_ = v.split(' ')
+            isfire = v_[0]
+            if isfire == '0':
+                center_x = float(v_[1])
+                center_y = float(v_[2])
+                w = float(v_[3])
+                h = float(v_[4])
+                bl_x = center_x-w/2
+                bl_y = center_y+h/2
+                br_x = center_x+w/2
+                br_y = center_y+h/2
+                # 返回 存在火焰帧的第一帧的索引， 火焰边框坐标（左上角，右下角），dict_：火焰检测结果（帧索引，框的中心点坐标。框的宽和高）
+                fire_info = [int(key), bl_x, bl_y, br_x, br_y]
+                return [int(key), bl_x, bl_y, br_x, br_y] 
+    return
+
+def linear_regression(x, y):
+    N = len(x)
+    sumx = sum(x)
+    sumy = sum(y)
+    sumx2 = sum(x ** 2)
+    sumxy = sum(x * y)
+    A = np.mat([[N, sumx], [sumx, sumx2]])
+    b = np.array([sumy, sumxy])
+    return np.linalg.solve(A, b)

@@ -53,14 +53,14 @@ def localization2(path, rebuild):
             (1,) for a bbox  
     """
     dict_, dict_2 = detect2(path) # 返回 两个视频的字典
-    dict1, dict_all1 = fire_info(dict_) # 第一帧的索引
-    dict2, dict_all2 = fire_info(dict_2)
+    dict1_first_fire, dict_all1 = fire_info(dict_) # 第一帧的索引
+    dict2_first_fire, dict_all2 = fire_info(dict_2)
     # HW = 0
     fire_left, fire_right, pixel_distance_of_high ,left_bbox, fire_frame=  get_max_bbox(path, dict_, dict_2)
     d = rebuild.triangulation_double_bbox(fire_left, fire_right)
     h = (pixel_distance_of_high/(fire_left[2] - fire_left[1])) * d
 
-    return dict1, dict_all1, dict2, dict_all2, d, h, left_bbox, fire_frame
+    return dict1_first_fire, dict_all1, dict2_first_fire, dict_all2, d, h, left_bbox, fire_frame
 
 
 def fire_info(dict_):
@@ -85,7 +85,19 @@ def fire_info(dict_):
 
 
 def WriteText(dd_x, dd_y, dd_z, radium_list, height_list, speed, angle_qing, angle_pian, angle_pian_direction):
-    # dd_z=0
+    """落点，速度，角度，火球大小
+
+    Args:
+        dd_x (_type_): _description_
+        dd_y (_type_): _description_
+        dd_z (_type_): _description_
+        radium_list (_type_): _description_
+        height_list (_type_): _description_
+        speed (_type_): _description_
+        angle_qing (_type_): _description_
+        angle_pian (_type_): _description_
+        angle_pian_direction (_type_): _description_
+    """
 
     print(angle_pian_direction)
     angle_pian_direction = angle_pian_direction.replace('前','南')
@@ -257,18 +269,23 @@ if __name__=='__main__':
 
     # TODO: 火焰定位
     print('▅'*80,'Step2： Finding Fire by YOLO')
-    dict1, dict_all1, dict2, dict_all2, W, H, left_bbox, fire_frame = localization2(out1 + ',' + out2, Video) # 多个路径
+    dict1_first_fire, dict_all1, dict2_first_fire, dict_all2, W, H, left_bbox, fire_frame = localization2(out1 + ',' + out2, Video) # 多个路径
     # -------------------- 以上第一部分封装 --------------
-    # [{'name':0721, "one":path1; "two": path2;"dict1"}]
+    # [{'name':0721, "one":path1; "two": path2;"dict1_first_fire"}]
 
-    # TODO: 导弹定位
+    # TODO: 导弹定位:
+    # 导弹第一帧
+    # 导弹第一帧的位置
+    # 输出视频保存路径
+    # 从火焰出现的帧至火焰消失那一帧的帧数范围
+    # 
     print('▅'*80,'Step3： Tracking Object for Video1')
     track_index1, track_location1, result_path1, fire_range1, x_fire1, y_fire1 = \
-                                                    video_process(root, out1, dict1, dict_all1, W = W, H = H,  left_bbox = left_bbox, fire_frame= fire_frame)
+                                                    video_process(root, out1, dict1_first_fire, dict_all1, W = W, H = H,  left_bbox = left_bbox, fire_frame= fire_frame)
 
     print('▅'*80,'Step4： Tracking Object for Video2')
     track_index2, track_location2, result_path2, fire_range2, x_fire2, y_fire2 = \
-                                                    video_process(root, out2, dict2, dict_all2, left_bbox)
+                                                    video_process(root, out2, dict2_first_fire, dict_all2, left_bbox)
 
     print('▅'*80,'Step5： Smoothing Tracked Points')
     startpoint1, endpoint1, startpoint2, endpoint2 = -1,-1,-1,-1
@@ -276,7 +293,7 @@ if __name__=='__main__':
     # 获得导弹的初始点，同时确保帧的序号是对齐的
     for i1, l1 in zip(track_index1, track_location1): # track_index: list, save the indexs of frame where moving objects appear
         index = np.where(track_index2==i1)
-        if index[0].shape[0]==1: # 如果有单个点
+        if index[0].shape[0]==1: # 如果有单个点 # 2022年7月29日17:34:06：似乎不存在这个情况？
             startindex = i1
             startpoint1, startpoint2 = l1, track_location2[index[0][0]]
             break
@@ -311,13 +328,6 @@ if __name__=='__main__':
         startindex, endindex = track_index1[0], track_index1[-1]
         startpoint1, endpoint1, startpoint2, endpoint2 = track_location1[0], track_location1[-1], track_location2[0], track_location2[-1]
     
-    # t_index1, t_location1, ymin = [],[],0
-    # for i, l in zip(track_index1,track_location1):
-    #     if l[1]>ymin: ymin=l[1]; t_index1.append(i); t_location1.append(l);
-
-    # t_index2, t_location2, ymin = [],[],0
-    # for i, l in zip(track_index2,track_location2):
-    #     if l[1]>ymin: ymin=l[1]; t_index2.append(i); t_location2.append(l);
     time.sleep(0.5)
 
     print('▅'*80,'Step5： Rebuilding Coordinates')
@@ -349,7 +359,7 @@ if __name__=='__main__':
     print('{} processed !'.format(result_path1))
     WriteText(fire_x[0], fire_y[0], fire_z[0], radium_list, height_list, 
                     speed, angle_qing, angle_pian, angle_pian_direction)
-    print('{} processed !'.format(result_path2))
+    # print('{} processed !'.format(result_path2))
     
     # 自动显示后处理结果
     time.sleep(1)

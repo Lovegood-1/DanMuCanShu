@@ -1,24 +1,21 @@
-"""2022年7月21日15:50:36
-测试利用双目确定世界坐标
+"""2022年7月30日09:55:23
+测试利用双目确定世界坐标  https://www.jianshu.com/p/77f7c0cd9ec7 
 """
 #!/usr/bin/env python3
 # coding:utf-8
+import os
+import re
 import cv2
 from matplotlib import image
 import numpy as np
 import time
 from PIL import Image,ImageTk
-# import threading
-# import os
-# import re    
-# import subprocess
-# import random
 import math
 import csv
-import argparse
+import pandas as pd
 
 class PNPSolver(): 
-    def __init__(self, filename, size_wh = (4.96, 3.72), imageWH = (1920,1080), img_path = r'', camera_id = '192.168.0.2'):
+    def __init__(self, Intrinsic, waican , size_wh = (4.96, 3.72), imageWH = (1920,1080), img_path = r'', camera_id = '192.168.0.2'):
         self.COLOR_WHITE = (255,255,255)
         self.COLOR_BLUE = (255,0,0)
         self.COLOR_LBLUE = (255, 200, 100)
@@ -27,9 +24,9 @@ class PNPSolver():
         self.COLOR_DRED = (0,0,139)
         self.COLOR_YELLOW = (29,227,245)
         self.COLOR_PURPLE = (224,27,217)
-        self.COLOR_GRAY = (127,127,127)  
-        self.Points3D = np.zeros((1, 4, 3), np.float32)  #存放4组世界坐标位置
-        self.Points2D = np.zeros((1, 4, 2), np.float32)   #存放4组像素坐标位置
+        self.COLOR_GRAY = (127,127,127)   
+        self.Points3D = np.zeros((1, 4, 3), np.float32)  #存放4组世界坐标位置 TODO: 自适应数量，不一定是4
+        self.Points2D = np.zeros((1, 4, 2), np.float32)   #存放4组像素坐标位置 TODO: 自适应数量，不一定是4
         self.point2find = np.zeros((1, 2), np.float32)
         self.cameraMatrix = None
         self.distCoefs = None
@@ -38,7 +35,9 @@ class PNPSolver():
         self.size_wh = size_wh
         self.imageWH = imageWH
         self.camera_id = camera_id
-        self.filename = filename
+        self.filename = Intrinsic
+        self.waican = waican 
+        self.init_Point()
 
     def rotationVectorToEulerAngles(self, rvecs, anglestype):
         R = np.zeros((3, 3), dtype=np.float64)
@@ -215,6 +214,26 @@ class PNPSolver():
             cv2.circle(img, (int(nose_end_point[0,0,0]), int(nose_end_point[0,0,1])), 3, (100 , 255 , 100), -1)
             return img
 
+    def init_Point(self):
+        """读取外参文件来为 2d 3d 点赋值
+
+        Returns:
+            _type_: _description_
+        """
+        assert os.path.isfile(self.waican)
+        data = pd.read_csv(self.waican)
+        pixel_cor1 = data[['u1','v1']] # 列名称
+        pixel_cor1 = np.array(pixel_cor1).reshape(1,-1,2)
+        self.Points2D = pixel_cor1.astype(np.float32)
+        worldpoint1 = data[['x1','y1','z1']]
+        worldpoint1 = np.array(worldpoint1,dtype=np.float32)
+        self.Points3D = np.expand_dims(worldpoint1,0)
+        self.getudistmap()
+        self.solver()
+
+        # 2 外参映射完成
+
+
 class GetDistanceOf2linesIn3D():
     def __init__(self):
         print('GetDistanceOf2linesIn3D class')
@@ -273,102 +292,16 @@ class GetDistanceOf2linesIn3D():
         print('distance=', self.distance)
         return self.distance
 
+def main_test_pnp():
+    calibration_dir
+    camera_info = {}
+    camera_list = os.listdir(calibration_dir) # 获取所有 mat 文件
+    for camera in camera_list:
+        ip_ = re.findall( r'[0-9]+(?:\.[0-9]+){3}',camera)[0]
+        if len(ip_) > 0:
+            camera_info[ip_] = PNPSolver(os.path.join(calibration_dir,camera))
 
-if __name__ == "__main__":
-    print("***************************************")
-    print("test example")
-    print("***************************************")
-    parser = argparse.ArgumentParser(description='test')
-    parser.add_argument('-file', type=str, default = 'calibration.csv')
-    args = parser.parse_args()
-    calibrationfile = r'calibration\cameraParams_new0727.mat'
-    # 1. 建立对象，第一幅图片中的像素坐标和三维坐标
-    p4psolver1 = PNPSolver(  calibrationfile ,img_path = r'calibration\v1.png')
+    pass
 
-    P11 = np.array([0, 0, 0])
-    P12 = np.array([0, 13840, 0])
-    P13 = np.array([5500, 24840, 0])
-    P14 = np.array([16500, 13840, 0])    
-    p11 = np.array([207, 876])
-    p12 = np.array([699,778])
-    p13 = np.array([1087, 727])
-    p14 = np.array([1681, 684]) 
-    p4psolver1.Points3D[0] = np.array([P11,P12,P13,P14])
-    p4psolver1.Points2D[0] = np.array([p11,p12,p13,p14])
-    p4psolver1.getudistmap(calibrationfile)
-    p4psolver1.solver()
-
-    # 2. 第二幅图中的像素坐标和三维坐标
-    p4psolver2 = PNPSolver( calibrationfile ,img_path = r'calibration\v2.png')
-    P21 = np.array([0, 0, 0])
-    P22 = np.array([0,  13840, 0])
-    P23 = np.array([16500, 13840, 0])
-    P24 = np.array([20000, 0, 0])  
-    p21 = np.array([168, 728])
-    p22 = np.array([750, 697])
-    p23 = np.array([1065, 700])
-    p24 = np.array([582, 739])
-
-    p4psolver2.Points3D[0] = np.array([P21,P22,P23,P24])
-    p4psolver2.Points2D[0] = np.array([p21,p22,p23,p24])
-    
-    p4psolver2.getudistmap(calibrationfile)
-    p4psolver2.solver()
-    
- 
-    # 3 向量：相机点->未知点 的世界坐标 a2
-    img = p4psolver1.show_2dpoints()
-    img2 = p4psolver2.show_2dpoints()
-    cv2.namedWindow('2',0)
-    cv2.imshow('2',img2)  
-    cv2.namedWindow('1',0)
-    cv2.imshow('1',img)
-    cv2.waitKey()
-    cv2.destroyAllWindows()  
-    
-    p4psolver2.point2find = np.array([1069, 675])
-    p4psolver1.point2find = np.array([895, 736])
-    point2find1_CF = p4psolver1.ImageFrame2CameraFrame(p4psolver1.point2find)
-    Oc1P_1 = np.array(point2find1_CF)
-
-    Oc1P_1[0], Oc1P_1[1] = p4psolver1.CodeRotateByZ(Oc1P_1[0], Oc1P_1[1], p4psolver1.Theta_W2C[2])
-    Oc1P_1[0], Oc1P_1[2] = p4psolver1.CodeRotateByY(Oc1P_1[0], Oc1P_1[2], p4psolver1.Theta_W2C[1])
-    Oc1P_1[1], Oc1P_1[2] = p4psolver1.CodeRotateByX(Oc1P_1[1], Oc1P_1[2], p4psolver1.Theta_W2C[0])
-
-    a1 = np.array([p4psolver1.Position_OcInWx, p4psolver1.Position_OcInWy, p4psolver1.Position_OcInWz])
-    a2 =  a1 + Oc1P_1
- 
-    # 4 向量：相机点->未知点 的世界坐标 b2
-    point2find2_CF = p4psolver2.ImageFrame2CameraFrame(p4psolver2.point2find)
- 
-    Oc2P_2 = np.array(point2find2_CF)
-    print(Oc2P_2)
-
-    Oc2P_2[0], Oc2P_2[1] = p4psolver2.CodeRotateByZ(Oc2P_2[0], Oc2P_2[1], p4psolver2.Theta_W2C[2])
-    Oc2P_2[0], Oc2P_2[2] = p4psolver2.CodeRotateByY(Oc2P_2[0], Oc2P_2[2], p4psolver2.Theta_W2C[1])
-    Oc2P_2[1], Oc2P_2[2] = p4psolver2.CodeRotateByX(Oc2P_2[1], Oc2P_2[2], p4psolver2.Theta_W2C[0])
-
-    b1 = ([p4psolver2.Position_OcInWx, p4psolver2.Position_OcInWy, p4psolver2.Position_OcInWz])
-    b2 = b1 + Oc2P_2
-
-    # 5 计算两个直线的最近点
-    g = GetDistanceOf2linesIn3D()
-    g.SetLineA(a1[0], a1[1], a1[2], a2[0], a2[1], a2[2])
-    g.SetLineB(b1[0], b1[1], b1[2], b2[0], b2[1], b2[2])
-
-    distance = g.GetDistance()
-
-    pt = (g.PonA + g.PonB)/2
-
-    print(pt)
-    img = p4psolver1.show_2dpoints(img, pt)
-    img2 = p4psolver2.show_2dpoints(img2, pt)
-    cv2.namedWindow('1',0)
-    cv2.imshow('1',img)
-    cv2.namedWindow('2',0)
-    cv2.imshow('2',img2)
-    cv2.waitKey()
-    cv2.destroyAllWindows()
-    A = np.array([241.64926392,-78.7377477,166.08307887])
-    B = np.array([141.010851,-146.64449841,167.28164652])
-    print(math.sqrt(np.dot(A-B,A-B)))
+if __name__== '__main__':
+    main_test_pnp()

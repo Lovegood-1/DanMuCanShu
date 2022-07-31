@@ -15,7 +15,7 @@ import torchvision.models as models
 import  calibration.param as stereoconfig_040_2
 from utils.video_rectify import video_rectify
 import random
-
+import glob
 
 logger = logging.getLogger(__name__)
 def xywh2xyxy(x):
@@ -244,7 +244,7 @@ class ModelEMA:
 
 import queue
 
-def build_multi_queue(seconds, fps, names = ['rgb', 'left', 'right'], type = 'normal'):
+def build_multi_queue(seconds, fps = 30 , names = ['rgb', 'left', 'right'], type = 'normal'):
     """
     
     """
@@ -565,8 +565,21 @@ def show_video(video_path, window_name, times = 1):
         key = cv2.waitKey(25)
         if key == 27:  # 按键esc
             break
- 
+def get_file_list(img_dir  , fileExtensions):
+    """返回指定后缀的文件
 
+    Args:
+        fileExtensions (_type_):   [ "jpg", "jpeg", "png", "bmp", "gif" ]
+        img_dir (regexp, optional):   r'D:\files\data\textSeg\image'. 无最后一个斜杠
+
+    Returns:
+        _type_: _description_
+    """
+    
+    listOfFiles    = []
+    for extension in fileExtensions:
+        listOfFiles.extend( glob.glob( img_dir + '\\*.' + extension  ))
+    return listOfFiles
 
 if __name__ == "__main__":
     q = Queue_list(4)

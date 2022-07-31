@@ -123,8 +123,8 @@ if __name__ == '__main__':
 
      data1=pd.read_csv(path1)
      data = pd.read_csv(path2)
-     pixel_cor1 = data[['u1','v1']]
-     pixel_cor1 = np.array(pixel_cor1).reshape(-1,1,2)
+     pixel_cor1 = data[['u1','v1']] # 列名称
+     pixel_cor1 = np.array(pixel_cor1).reshape(1,-1,2)
      pixel_cor1 = pixel_cor1.astype(np.float32)
 
      pixel_cor2 = data[['u2','v2']]

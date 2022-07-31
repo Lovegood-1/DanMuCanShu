@@ -1,4 +1,5 @@
 from operator import le
+import os
 import numpy as np
 import cv2
 # from numpy.core.shape_base import block
@@ -6,8 +7,8 @@ import cv2
 # import matplotlib.pyplot as plt
 # from PIL import Image, ImageDraw, ImageFont
 from twoeye import oneeye
-
-
+from utils.general import is_ip, frist_fire_info, linear_regression
+from utils.utils_danmu import two_camera
 def frame_diff(old, cur):
     threshold_pixel = 0.2
 
@@ -60,10 +61,11 @@ def splitdict(dict, shape):
     dictkeys = dict.keys()
     last_index = max(dictkeys)
 
-    for i in range(last_index+1):
+    for i in range(int(last_index)+1):
         fire_dict.update({i : None})
 
     for key, value in dict.items():
+        key = int(key)
         tl_x_min = shape[1]
         tl_y_min = shape[1]
         br_x_max = 0
@@ -97,7 +99,7 @@ def splitdict(dict, shape):
                     br_y_max = br_y
 
         if have_fire==True:
-            if fire_index_max<key:
+            if int(fire_index_max)<int(key):
                 fire_index_max=key
 
             tl_x_min = tl_x_min*shape[1]
@@ -207,11 +209,13 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
     # # if is(fps) is 'inf':
     # #     fps=25
     # fps=25
-    fps=60
+    
 
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+    
 
     # 创建视频存储对象
+    fps=60
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
     videoWriter = cv2.VideoWriter(save_filename,fourcc,fps,(old_frame.shape[1],old_frame.shape[0]),True)
     count = 0
     max_range = 0
@@ -350,3 +354,275 @@ def video_process(root, video_path, dict_first, dict_all, show_fire_point = True
     cap.release()
     videoWriter.release()
     return np.array(track_index), np.array(track_location), save_filename, fire_range, x_fire, y_fire
+
+def video_process_multiple(video_info, cameras_info, save_video = True, save_path = 'videos_result'):  
+    """
+    1. 处理多个视频的导弹轨迹检测
+    2. 计算落点像素坐标 - 第一帧的中心
+    3. 计算速度
+    4. 
+
+    Args:
+        video_info:
+            [{'time':20220727_111040, 
+                '192.168.1.1':
+                        {"path": d:/, 
+                        "info": { "dict_all": dict;  # 这个是火焰检测负责计算
+                                "dict1_first_fire": dict;
+                                "missle_info":}     # 这个导弹检测计算
+                '192.168.1.2':
+                        {"path": d:/, 
+                        "info": { "dict_all": dict;  # 这个是火焰检测负责计算
+                                "dict1_first_fire":
+                                "missle_info":}     # 这个导弹检测计算
+                                }] 
+
+    Returns:
+        np.array(track_index): track_index: list, save the indexs of frame where moving objects appear
+        np.array(track_location): track_location: list,  save the Pixel coordinates of moving objects for each element in track_index
+        save_filename:_description_
+        fire_range, x_fire, y_fire
+    """
+    for _time in video_info:
+        # numbers : dict
+        # 遍历所有IP 
+        
+        for k ,v in _time.items():
+            if is_ip(k.strip()) is False: # 检查 k 是否符合ip命名规范
+                continue
+            print(_time['time'], k)
+            _video_path = _time[k]['path']
+            video_path , dict_all = _time[k]['path'], _time[k]['info']['dict_all_fire'] 
+            dict_first =  frist_fire_info(dict_all)
+            # 导弹出现情况统计
+            track_index, track_location = [], []
+
+            # 火焰中心点坐标 及 导弹初始点坐标 初始化
+            x_fire, y_fire, x_dd, y_dd = 0,0,0,0
+            ifdd = True
+
+            # 创建视频读取对象
+            cap = cv2.VideoCapture(video_path)
+
+            # 前段显示路径定义
+            if save_video:
+                save_filename = os.path.join(save_path,str(_time['time']).strip() + '_' + k.strip() + '.mp4')
+
+            # 视频参数设置
+            feature_params = dict(maxCorners=100,
+                                qualityLevel = 0.01,
+                                minDistance = 7,
+                                blockSize = 2,
+                                useHarrisDetector=True,
+                                k = 0.04)
+            
+            lk_params = dict(winSize = (15,15),
+                            maxLevel = 2,
+                            criteria=(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+
+            # 读取视频首帧,宽高
+            ret, old_frame = cap.read()
+
+            # 将视频首帧转为灰度图，并作为后续光流追踪的初始化数据
+            old_gray = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
+
+            # p0为初始化的光流追踪点
+            p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
+            # 后续会将通过光流追踪出来的点可视化到mask上
+            mask = (np.zeros_like(old_frame)[:,:,0]).astype(np.uint8)
+
+            # 获取火焰出现的帧索引，以及火焰框信息 # TODO:可能没有火焰
+            fire_index = dict_first[0]
+            fire_bl_x = int(dict_first[1]*old_gray.shape[1])
+            fire_bl_y = int(dict_first[2]*old_gray.shape[0])
+            fire_br_x = int(dict_first[3]*old_gray.shape[1])
+            fire_br_y = int(dict_first[4]*old_gray.shape[0])
+
+            # x_fire,y_fire 为火焰边框中心点坐标，   x_min, y_min 为光流追踪点的最小点坐标
+            try:
+                x_fire,y_fire = findpoint_fire([fire_bl_x, fire_bl_y, fire_br_x, fire_br_y])
+            except:
+                pass
+            
+            # 对 dict_all 进行处理，挑选出拥有火焰的帧，且返回这些帧信息和火焰信息
+            # fire_local : [(tlx,tly),(brx,bry),w,h]
+            fire_local,fire_index_max= splitdict(dict_all, old_gray.shape)
+
+            # fire_range：即从火焰出现的帧至火焰消失那一帧的帧数范围
+            fire_range = {}
+            dict_keys = fire_local.keys()
+            last_index_ = max(dict_keys)
+            for i in range(last_index_+1):
+                fire_range.update({i : None})
+
+            # 创建视频存储对象
+            fps=60
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            videoWriter = cv2.VideoWriter(save_filename,fourcc,fps,(old_frame.shape[1],old_frame.shape[0]),True)
+            count = 0
+            max_range = 0
+
+            # 开始逐帧处理，即检测轨迹和火焰
+            while True:
+                # 视频帧读入，若当前视频为空或已读完就break
+                ret, frame = cap.read()
+                if not ret: break
+
+                # &&&&&&&&&&  第一阶段：仅视火焰出现【前30帧】为有效帧，对之前的帧进行过滤处理  &&&&&&&&&&
+                # fire_index 为火焰出现的帧索引
+                if count<fire_index-30:
+                    print('filtering useless frames-----> fire_index_start:',fire_index, 'fire_index_end:', fire_index_max, 'cur_index:',count)
+                    count+=1
+
+                # &&&&&&&&&&  第二阶段：对火焰出现【前30帧】至火焰出现【前一帧】的所有帧进行轨迹追踪  &&&&&&&&&&
+                elif count<fire_index-1:
+                    try:
+                        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    except:
+                        continue
+
+                    # 通过p0光流追踪，若p0光流有问题，则重新在当前帧中初始化追踪点，然后展开追踪
+                    try:
+                        p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
+                    except:
+                        p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
+                        p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
+
+                    good_new = p1[st==1]
+                    good_old = p0[st==1]
+
+                    for i, (new, old) in enumerate(zip(good_new, good_old)):
+                        # a:x,  b:y
+                        a, b = new.ravel()
+                        c, d = old.ravel()
+
+                        #计算每个角点位移距离
+                        dis = np.sqrt((a-c)**2+(b-d)**2)
+
+                        # 计算每个交点的角度,
+                        #当angle小于0.7时，导弹下落与y轴的夹角小于35度，
+                        #当angle小于1时，导弹下落与y轴的夹角小于45度，
+                        #当angle小于1.7时，导弹下落与y轴的夹角小于60度，
+                        #当angle小于2.8时，导弹下落与y轴的夹角小于70度，
+                        # angle = np.abs(a-c)/np.abs(b-d)
+
+                        # 角点位移>7；  新角点在旧角点下方； 新角点在导弹落点上方； 新旧角点与y轴角度<45度； 
+                        if (dis>=7) and (b>d) and (b<y_fire):
+
+                            angle_luodian = np.abs(x_fire-c)/np.abs(y_fire-d)
+                            # 角点与导弹落点间在y轴角度<35度； 
+                            if angle_luodian<=0.7:
+                                cv2.circle(mask, (int(a),int(b)), 2,1,-1)
+
+                                if ifdd:
+                                    x_dd, y_dd = a, b
+                                    ifdd=False
+
+                                track_index.append(count)
+                                track_location.append([int(a),int(b)])
+
+                    videoWriter.write(frame)
+
+                    # 迭代更新光流点信息
+                    diff = frame_diff(old_gray, frame_gray)
+                    old_gray = frame_gray.copy()
+                    p0 = cv2.goodFeaturesToTrack(old_gray, mask=diff, **feature_params)
+                    print('tracking object-----> fire_index_start:',fire_index, 'fire_index_end:',fire_index_max, 'cur_index:',count)
+                    count += 1
+
+
+                # &&&&&&&&&&  第三阶段：火焰出现当前时刻，通过之前所追踪的轨迹信息结合火焰信息得到完整的轨迹信息以及落点  &&&&&&&&&&
+                elif count == fire_index-1:
+                    track_index.append(count)
+                    track_location.append([int(x_fire),int(y_fire)])
+                    cv2.circle(mask, (int(x_fire),int(y_fire)), 2,1,-1)
+                    # cv2.imwrite(opticalpoints_filename, mask*255)
+
+                    mask_track = np.zeros_like(old_frame)
+                    # 将光流追踪点最上方的点和火焰边框中心点连线作为XX运行轨迹
+                    mask_track = cv2.line(mask_track, (int(x_dd),int(y_dd)), (int(x_fire), int(y_fire)), (255,255,255), 2)
+                    mask_track = cv2.circle(mask_track, (int(x_fire), int(y_fire)), 9, (0,0,255), -1)
+
+                    result_img = frame
+                    result_img = cv2.add(result_img, mask_track)
+                    videoWriter.write(result_img)
+
+                    print('finding location-----> fire_index_start:',fire_index, 'fire_index_end:',fire_index_max, 'cur_index:',count)
+                    count += 1                
+
+                # &&&&&&&&&&  第四阶段：火焰出现之后的所有帧  &&&&&&&&&&
+                # 火焰开始出现，对火焰进行可视化
+                elif count > fire_index-1:
+                    mask_fire = np.zeros_like(old_frame)
+
+                    # fire_local : [(tlx,tly),(brx,bry),w,h]
+                    if count in fire_local.keys():
+
+                        # if count == fire_frame and left_bbox is not None:
+                        #     cv2.rectangle(mask_fire, (left_bbox[0],left_bbox[1]), (left_bbox[2],left_bbox[3]), (0,255,0), 2)
+                        #     cv2.putText(mask_fire, str(W)[:4], (left_bbox[0],left_bbox[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1) # TODO: 显示带有边长的框，数字居中显示
+                        #     cv2.putText(mask_fire, str(H)[:4], (left_bbox[2],left_bbox[3]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                        # else:
+                        mask_fire = np.zeros_like(old_frame)
+
+                    result_img = frame
+                    result_img = cv2.add(result_img, mask_track)
+                    result_img = cv2.add(result_img, mask_fire)
+
+                    videoWriter.write(result_img)
+                    # if count == fire_frame :
+                    #     for i in range(100):
+                    #         videoWriter.write(result_img)
+                    print('visualizing fire-----> fire_index_start:',fire_index, 'fire_index_end:',fire_index_max, 'cur_index:',count)
+                    count += 1
+
+                # &&&&&&&&&&  第五阶段：火焰出现之后的所有帧  &&&&&&&&&&
+                elif count>fire_index_max:
+                    print('cur_index>fire_index_end, ending-----> fire_index_start:',fire_index, 'fire_index_end:',fire_index_max, 'cur_index:',count)
+                    cap.release()
+                    videoWriter.release()
+                    # return np.array(track_index), np.array(track_location), save_filename, fire_range, x_fire, y_fire
+
+            print('ending-----> fire_index_start:',fire_index, 'fire_index_end:',fire_index_max, 'cur_index:',count) 
+            cap.release()
+            videoWriter.release()
+
+            # 角度：依据光流点计算角度
+            track_location =  np.array(track_location)
+            y_ = track_location[:, 1]
+            x_ = track_location[:, 0]
+            b_, w_ = linear_regression(x_, y_)
+            angle_  = np.arctan(-w_) /3.14*180
+
+            # 火焰范围：依据像素距离和来计算
+
+
+            _time[k]['info']['track_index'] = np.array(track_index) 
+            _time[k]['info']['track_location'] =  np.array(track_location) 
+            _time[k]['info']['fire_range'] =   fire_range 
+            _time[k]['info']['x_fire'] =  x_fire
+            _time[k]['info']['y_fire'] =  y_fire  
+            _time[k]['info']['missle_angle'] = angle_  
+        # 在同一时刻下，当所有 IP 遍历完成后，开始双目重建
+        _first_two_ip = [ i for i in _time.keys() if is_ip(i.strip())]
+        _first_two_ip = sorted(_first_two_ip ,key = lambda x: ( int(x.split('.')[0]), int(x.split('.')[1]), int(x.split('.')[2]) ))
+        p1 = np.array([_time[_first_two_ip[0]]['info']['x_fire'], _time[_first_two_ip[0]]['info']['y_fire']])
+        p2 = np.array([_time[_first_two_ip[1]]['info']['x_fire'], _time[_first_two_ip[1]]['info']['y_fire']])
+        p_3d_point = two_camera(cameras_info  ,  p1 , p2)
+        
+
+        # 写入类变量: 落点，速度，角度，宽度，高度
+        _time['result']['location'] =  p_3d_point
+        _time['result']['missle_angle'] =  _time[_first_two_ip[0]]['info']['missle_angle']
+        _time['result']['missle_speed'] =  2.3 
+        _time['result']['fire_W']  
+    
+    
+    return video_info
+if __name__ == "__main__":
+    
+    import json
+    f = open('video_info_json.json', 'r')
+    content = f.read()
+    a = json.loads(content)
+    video_process_multiple(a)

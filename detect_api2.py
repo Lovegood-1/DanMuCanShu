@@ -272,7 +272,7 @@ def detect_multi_videos(video_info  ,save_img=True):
         # numbers : dict
         # 遍历所有IP 
         for k ,v in _time.items():
-            if is_ip(k.strip()) is False:
+            if is_ip(k.strip()) is False: # 检查是否符合ip命名规范
                 continue
             print(_time['time'], k)
             _video_path = _time[k]['path']
@@ -390,7 +390,9 @@ def detect_multi_videos(video_info  ,save_img=True):
                 这里可以修改变量了
                 """
             _time[k]['info']["dict_all_fire"] = dict_[0]
+            
     print('Done. (%.3fs)' % (time.time() - t0))
+
     return video_info
 
 
@@ -430,7 +432,15 @@ if __name__ == '__main__':
                     "info": { "dict_all": 1, # 这个是火焰检测负责计算
                                 "dict1_first_fire":1,
                                 "missle_info":1}     # 这个导弹检测计算
-                                }},
+                                },
+                'result':
+                    {'location':np.array([1,2,3])},
+                    'missle_speed': 2.3,
+                    'missle_angle': 46,
+                    'fire_W': 2.3,
+                    'fire_H': 5.6,
+
+                                },
                                 {'time':'20220727_111050', 
                 '192.168.1.1':
                     {"path": r'video_new\20220727_111050\192.168.1.1.avi', 
@@ -443,7 +453,33 @@ if __name__ == '__main__':
                     "info": { "dict_all": 1, # 这个是火焰检测负责计算
                                 "dict1_first_fire":1,
                                 "missle_info":1}     # 这个导弹检测计算
-                                }}]  
+                                }}, 
+                                {'time':'20220727_111051', 
+                '192.168.1.1':
+                    {"path": r'video_new\20220727_111040\192.168.1.1.avi', 
+                    "info": { "dict_all": 1,  # 这个是火焰检测负责计算
+                                "dict1_first_fire": 1,
+                                "missle_info":1} ,    # 这个导弹检测计算
+                    },
+                '192.168.1.2':
+                    {"path": r'video_new\20220727_111040\192.168.1.2.avi', 
+                    "info": { "dict_all": 1, # 这个是火焰检测负责计算
+                                "dict1_first_fire":1,
+                                "missle_info":1}     # 这个导弹检测计算
+                                }},
+                                {'time':'20220727_111052', 
+                '192.168.1.1':
+                    {"path": r'video_new\20220727_111050\192.168.1.1.avi', 
+                    "info": { "dict_all": 1,  # 这个是火焰检测负责计算
+                                "dict1_first_fire": 1,
+                                "missle_info":1} ,    # 这个导弹检测计算
+                    },
+                '192.168.1.2':
+                    {"path": r'video_new\20220727_111050\192.168.1.2.avi', 
+                    "info": { "dict_all": 1, # 这个是火焰检测负责计算
+                                "dict1_first_fire":1,
+                                "missle_info":1}     # 这个导弹检测计算
+                                }},]  
             dict_, dict_2 = detect_multi_videos(video_info)
             
     sorted_results = sorted(dict_.items(), key = lambda kv:(kv[1], kv[0]), reverse=True)

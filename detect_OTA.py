@@ -76,7 +76,7 @@ def detect(save_img=False, camera_device = 'usb'):
     # some values initailization
     seconds = 3
     save_video = False
-    FPS = dataset.fps
+    FPS = 60
     q = {'before': build_multi_queue(seconds , fps = FPS, names  = names_video  ), 'after':build_multi_queue(seconds = 3, fps = FPS, names  = names_video ) }
     T1 = time.perf_counter()
     T_fire = -1
@@ -84,11 +84,11 @@ def detect(save_img=False, camera_device = 'usb'):
 
     # NEW: DEVICE SETTIING
     
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    # fourcc = cv2.VideoWriter_fourcc(*'XVID')
     
 
-    size = dataset.size
-    FPS = dataset.fps
+    # size = dataset.size
+    # FPS = 60
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -220,8 +220,8 @@ def get_opt():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default='yolov5s.pt', help='model.pt path(s)')
-    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--weights', nargs='+', type=str, default='best.pt', help='model.pt path(s)')
+    parser.add_argument('--source', type=str, default='video_back\\1.mp4', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference\\output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
