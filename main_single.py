@@ -28,7 +28,8 @@ app = Flask(__name__)
 global stop_, force_save, model, dataset, opt, device ,half, names, colors,  save_video
 model, dataset, opt = -1, -1, -1
 save_video = False
-
+global grey
+grey = False
 def init():
     """初始化全局变量
        此函数只能运行一遍！因为有删除保存目录的功能
@@ -86,7 +87,7 @@ def yolo_gen():
     view_img = True
     T_fire = -1
     q_fire =  Queue_list(10) # 用于存储前10帧的火焰bbox
-    for path, img, im0s, vid_cap in dataset:
+    for path, img, im0s in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -138,7 +139,7 @@ def yolo_gen():
         # Stream results
         if view_img:
             text_ = "%.1f"%((T2 - T1) *1.0)
-            if save_video  == True:
+            if save_video  == True or grey:
                 text_ = 'Saving Video ' + text_
             cv2.putText(im0, text_,(10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
@@ -347,8 +348,8 @@ def tasks():
                           
                  
     elif request.method=='GET':
-        return render_template('index.html')
-    return render_template('index.html')
+        return render_template('index2.html')
+    return render_template('index2.html')
 
 
 init()

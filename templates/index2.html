@@ -1,8 +1,20 @@
 <html>
   <head>
-    <title>Video Streaming Demonstration</title>
+    <title>Yolo-danmu</title>
   </head>
   <body>
-    <img src="{{ url_for('video_feed') }}" height="1000">
+    <table><tr>
+      <td><img src="{{ url_for('video_feed') }}" height="1000"> </td>
+      <td><img src="{{ url_for('video_feed') }}" height="1000"></td>
+      </tr></table>
+    
+    <form method="post" action="{{ url_for('tasks') }}">
+			<input type="submit" value="Stop/Start" name="stop" />
+			<input type="submit" value="Capture" name="click"/>
+			<input type="submit" value="Grey" name="grey" />
+			<input type="submit" value="Negative" name="neg" />
+			<input type="submit" value="Face Only" name="face" />
+			<input type="submit" value="Start/Stop Recording" name="rec" />
+			</form>
   </body>
 </html>
