@@ -5,7 +5,12 @@ import random
 import shutil
 import time
 from pathlib import Path
+from collections import deque
 from threading import Thread
+import threading
+import time
+import inspect
+import ctypes
 
 import cv2
 import numpy as np
@@ -16,8 +21,8 @@ from tqdm import tqdm
 # import depthai as dai
 from zmq import device
 
-from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first,WebCamera
-from utils.torch_utils import build_multi_queue, save_muitl_frame_to_q_k, save_multi_video
+from utils.general import xyxy2xywh, xywh2xyxy
+from utils.torch_utils import build_multi_queue
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.dng']
 vid_formats = ['.mov', '.avi', '.mp4', '.mpg', '.mpeg', '.m4v', '.wmv', '.mkv']
@@ -47,232 +52,20 @@ def exif_size(img):
 
     return s
 
-
-def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      rank=-1, world_size=1):
-    # Make sure only the first process in DDP process the dataset first, and the following others can use the cache.
-    with torch_distributed_zero_first(rank):
-        dataset = LoadImagesAndLabels(path, imgsz, batch_size,
-                                      augment=augment,  # augment images
-                                      hyp=hyp,  # augmentation hyperparameters
-                                      rect=rect,  # rectangular training
-                                      cache_images=cache,
-                                      single_cls=opt.single_cls,
-                                      stride=int(stride),
-                                      pad=pad,
-                                      rank=rank)
-
-    batch_size = min(batch_size, len(dataset))
-    nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, 8])  # number of workers
-    train_sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
-    dataloader = torch.utils.data.DataLoader(dataset,
-                                             batch_size=batch_size,
-                                             num_workers=1,
-                                             sampler=train_sampler,
-                                             pin_memory=True,
-                                             collate_fn=LoadImagesAndLabels.collate_fn)
-    return dataloader, dataset
-
-
-class LoadImages:  # for inference
-    def __init__(self, path, img_size=640):
-        p = str(Path(path))  # os-agnostic
-        p = os.path.abspath(p)  # absolute path
-        if '*' in p:
-            files = sorted(glob.glob(p))  # glob
-        elif os.path.isdir(p):
-            files = sorted(glob.glob(os.path.join(p, '*.*')))  # dir
-        elif os.path.isfile(p):
-            files = [p]  # files
-        elif sum([os.path.isfile(x) for x in path.split(',')]) == len(path.split(',')):
-            files = sorted([os.path.abspath(x) for x in path.split(',') if os.path.isfile(x)]) # absolute path
-
-        else:
-            raise Exception('ERROR: %s does not exist' % p)
-
-        images = [x for x in files if os.path.splitext(x)[-1].lower() in img_formats]
-        videos = [x for x in files if os.path.splitext(x)[-1].lower() in vid_formats]
-        ni, nv = len(images), len(videos)
-
-        self.img_size = img_size
-        self.files = images + videos
-        self.nf = ni + nv  # number of files
-        self.video_flag = [False] * ni + [True] * nv
-        self.mode = 'images'
-        if any(videos):
-            self.new_video(videos[0])  # new video
-        else:
-            self.cap = None
-        assert self.nf > 0, 'No images or videos found in %s. Supported formats are:\nimages: %s\nvideos: %s' % \
-                            (p, img_formats, vid_formats)
-
-    def __iter__(self):
-        self.count = 0
-        return self
-
-    def __next__(self):
-        if self.count == self.nf:
-            raise StopIteration
-        path = self.files[self.count]
-
-        if self.video_flag[self.count]:
-            # Read video
-            self.mode = 'video'
-            ret_val, img0 = self.cap.read()
-            if not ret_val:
-                self.count += 1
-                self.cap.release()
-                if self.count == self.nf:  # last video
-                    raise StopIteration
-                else:
-                    path = self.files[self.count] # 改变路径
-                    self.new_video(path)
-                    ret_val, img0 = self.cap.read()
-
-            self.frame += 1
-            print('video %g/%g (%g/%g) %s: ' % (self.count + 1, self.nf, self.frame, self.nframes, path), end='')
-
-        else:
-            # Read image
-            self.count += 1
-            img0 = cv2.imread(path)  # BGR
-            assert img0 is not None, 'Image Not Found ' + path
-            print('image %g/%g %s: ' % (self.count, self.nf, path), end='')
-
-        # Padded resize
-        img = letterbox(img0, new_shape=self.img_size)[0]
-
-        # Convert
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-        img = np.ascontiguousarray(img)
-
-        # cv2.imwrite(path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-        return path, img, img0, self.cap
-
-    def new_video(self, path):
-        self.frame = 0
-        self.cap = cv2.VideoCapture(path)
-        self.nframes = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    def __len__(self):
-        return self.nf  # number of files
-
-
-class LoadWebcam:  # for inference
-    def __init__(self, pipe=0, img_size=640):
-        self.img_size = img_size
-
-        if pipe == '0':
-            pipe = 0  # local camera
-        # pipe = 'rtsp://192.168.1.64/1'  # IP camera
-        # pipe = 'rtsp://username:password@192.168.1.64/1'  # IP camera with login
-        # pipe = 'rtsp://170.93.143.139/rtplive/470011e600ef003a004ee33696235daa'  # IP traffic camera
-        # pipe = 'http://wmccpinetop.axiscam.net/mjpg/video.mjpg'  # IP golf camera
-
-        # https://answers.opencv.org/question/215996/changing-gstreamer-pipeline-to-opencv-in-pythonsolved/
-        # pipe = '"rtspsrc location="rtsp://username:password@192.168.1.64/1" latency=10 ! appsink'  # GStreamer
-
-        # https://answers.opencv.org/question/200787/video-acceleration-gstremer-pipeline-in-videocapture/
-        # https://stackoverflow.com/questions/54095699/install-gstreamer-support-for-opencv-python-package  # install help
-        # pipe = "rtspsrc location=rtsp://root:root@192.168.0.91:554/axis-media/media.amp?videocodec=h264&resolution=3840x2160 protocols=GST_RTSP_LOWER_TRANS_TCP ! rtph264depay ! queue ! vaapih264dec ! videoconvert ! appsink"  # GStreamer
-
-        self.pipe = pipe
-        self.cap = cv2.VideoCapture(pipe)  # video capture object
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # set buffer size
-
-    def __iter__(self):
-        self.count = -1
-        return self
-
-    def __next__(self):
-        self.count += 1
-        if cv2.waitKey(1) == ord('q'):  # q to quit
-            self.cap.release()
-            cv2.destroyAllWindows()
-            raise StopIteration
-
-        # Read frame
-        if self.pipe == 0:  # local camera
-            ret_val, img0 = self.cap.read()
-            img0 = cv2.flip(img0, 1)  # flip left-right
-        else:  # IP camera
-            n = 0
-            while True:
-                n += 1
-                self.cap.grab()
-                if n % 30 == 0:  # skip frames
-                    ret_val, img0 = self.cap.retrieve()
-                    if ret_val:
-                        break
-
-        # Print
-        assert ret_val, 'Camera Error %s' % self.pipe
-        img_path = 'webcam.jpg'
-        print('webcam %g: ' % self.count, end='')
-
-        # Padded resize
-        img = letterbox(img0, new_shape=self.img_size)[0]
-
-        # Convert
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-        img = np.ascontiguousarray(img)
-
-        return img_path, img, img0, None
-
-    def __len__(self):
-        return 0
-
-
+ 
+q_imgs = [None] * 100
 class LoadStreams:  # multiple IP or RTSP cameras
-    def __init__(self, sources='streams.txt', img_size=640, rtsp = 'rtmp://192.168.43.89/live/livestream'):
-        self.mode = 'images'
+    def __init__(self, camera_cfg, img_size=640, num_devices=None):
         self.img_size = img_size
-
-        if os.path.isfile(sources):
-            with open(sources, 'r') as f:
-                sources = [x.strip() for x in f.read().splitlines() if len(x.strip())]
-        else:
-            sources = [sources]
-
-        n = len(sources)
-        self.imgs = [None] * n
-        self.sources = sources
-        self.fourcc = cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')
-        # cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) # 读取流不需要set
-        # cap.set(cv2.CAP_PROP_FPS, 60)
-        # cap.set(3, 1280)  # width=1920
-        # cap.set(4, 480)  # height=1080
-        
-        if len(rtsp) > 1:
-            cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
-        else:
-            cap = cv2.VideoCapture(0)
-            cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
-            cap.set(cv2.CAP_PROP_FPS, 50)
-            cap.set(3, 1280)  # width=1920
-            cap.set(4, 480)  # height=1080        
-        # self.size
-        self.fps = cap.get(cv2.CAP_PROP_FPS)         
-        self.names_video = ['rgb_double'] # 指定保存视频的字典名称
-        seconds = 3
-        # 建立保存线程1的队列
-        self.q =  {'before': build_multi_queue(seconds , fps = self.fps, names  = self.names_video  ), 'after':build_multi_queue(seconds = 3, fps = self.fps, names  = self.names_video ) }
-        # 建立事件发生变量
         self.event = False
-        self.finish = False
-        for i, s in enumerate(sources):
-            # Start the thread to read frames from the video stream
-            print('%g/%g: %s... ' % (i + 1, n, s), end='')
-            # cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
-            if len(rtsp) > 1:
-                cap = cv2.VideoCapture("rtmp://192.168.43.89/live/livestream")
+        self.imgs = [None] * num_devices
+        for i in range(num_devices):
+            if len(camera_cfg['Device_{}'.format(i)]['rtsp_addr']) > 1:
+                cap = cv2.VideoCapture(camera_cfg['Device_{}'.format(i)]['rtsp_addr'])
             else:
-                cap = cv2.VideoCapture(0)
-                cap.set(6, cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')) 
-                cap.set(cv2.CAP_PROP_FPS, 50)
-                cap.set(3, 1280)  # width=1920
-                cap.set(4, 480)  # height=1080
-            assert cap.isOpened(), 'Failed to open %s' % s
+                raise NotImplementedError("Device_.{} get false rtsp_addr!!!".format(i))
+            # assert cap.isOpened(), 'Failed to open Device_{}'.format(i)
+
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             if w < 1000:
@@ -280,38 +73,39 @@ class LoadStreams:  # multiple IP or RTSP cameras
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH,480)
             fps = cap.get(cv2.CAP_PROP_FPS) % 100
             _, self.imgs[i] = cap.read()  # guarantee first frame
-            thread = Thread(target=self.update, args=([i, cap]), daemon=True)
+            thread = Thread(target=self.update, args=([i, cap]), daemon=None)
             print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
             thread.start()
-        print('')  # newline
+            # thread.join()
+        time.sleep(1)
         self.fps = fps
         self.size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+ 
+    
         # check for common shapes
         s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
         self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
         if not self.rect:
             print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
-
+    
+   
     def update(self, index, cap):
         # Read next stream frame in a daemon thread
-        n = 0
-        star_after_time = 0 # 记录开始的时间
-        while cap.isOpened():
-            cap.grab()
-            _, self.imgs[index] = cap.retrieve()
-        #     # 决定把图像放在哪个队列里。在事件发生时候，把当前存下来的录像放入一个队列，在发生之后把当前存放的放入另一个
-        #     if self.event is True:
-        #         # 记录保存的时间
-        #         if time.perf_counter - star_after_time < 1.5:
-        #             self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'after', self.names_video)
-        #         else:
-        #             print("结束保存视频%.3f" % time.perf_counter - star_after_time)
-        #             break
-        #     else:
-        #         star_after_time = time.perf_counter()
-        #         self.q =  save_muitl_frame_to_q_k(self.q, {'rgb_double': self.imgs[index]}, 'before', self.names_video)
-        # save_multi_video(self.q, self.fourcc, self.fps, (self.size[0] *2, self.size[1]), self.names_video) # BUG 0601
-        print('save video in high FPS')
+        # n = 0
+        q = deque([], 20)
+        
+        
+        th_w = Thread(target=self.write, args=([q, index, cap]), daemon=None)
+        th_r = Thread(target=self.read, args=([q, index, cap]), daemon=None)
+        
+        th_w.start()
+        th_r.start()   # 开启两个线程
+    
+        th_r.join()
+        stop_thread(th_w)
+
+        print('xiancheng{}'.format(index))
+
     def __iter__(self):
         self.count = -1
         return self
@@ -320,9 +114,9 @@ class LoadStreams:  # multiple IP or RTSP cameras
         self.count += 1
         img0 = self.imgs.copy()
         
-        img_dict= {'right':img0[0][:,640:,...] }
+        # img_dict= {'right':img0[0][:,640:,...] }
         
-        img_dict['left'] =  img0[0][:,:640,...] 
+        # img_dict['left'] =  img0[0][:,:640,...] 
         img0 = [i[:,:640,...] for i in img0]
         if cv2.waitKey(1) == ord('q'):  # q to quit
             cv2.destroyAllWindows()
@@ -338,164 +132,100 @@ class LoadStreams:  # multiple IP or RTSP cameras
         img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
         img = np.ascontiguousarray(img)
 
-        return self.sources, img, img0, img_dict # TODO : 规范化输出，对于不同的设备。
+        return  img, img0 # TODO : 规范化输出，对于不同的设备。
 
-    def __len__(self):
-        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
+    def write(self, input, device, cap):
 
-class Load_RTSP_cameras:  # multiple IP or RTSP cameras
-    def __init__(self, sources='streams.txt', img_size=640, rtsp = 'rtmp://192.168.43.89/live/livestream'):
-        self.mode = 'images'
-        self.img_size = img_size
 
-        if os.path.isfile(sources):
-            with open(sources, 'r') as f:
-                sources = [x.strip() for x in f.read().splitlines() if len(x.strip())]
-        else:
-            sources = [sources]
-
-        n = len(sources)
-        self.imgs = [None] * n
-        self.sources = sources
-        self.fourcc = cv2.VideoWriter.fourcc('M', 'J', 'P', 'G')       
-        # self.size
-        self.names_video = ['rgb'] # 指定保存视频的字典名称
-        seconds = 3
-        # 建立保存线程1的队列
-        self.q =  {'before': build_multi_queue(seconds ,   names  = self.names_video  ), 'after':build_multi_queue(seconds = 3,   names  = self.names_video ) }
-        # 建立事件发生变量
-        self.event = False
-        self.finish = False
-        for i, s in enumerate(sources):
-            # Start the thread to read frames from the video stream
-            print('%g/%g: %s... ' % (i + 1, n, s), end='')
-            cap = cv2.VideoCapture(s)
-            assert cap.isOpened(), 'Failed to open %s' % s
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            # if w < 1000:
-            #     cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
-            #     cap.set(cv2.CAP_PROP_FRAME_WIDTH,480)
-            fps = cap.get(cv2.CAP_PROP_FPS) % 100
-            _, self.imgs[i] = cap.read()  # guarantee first frame
-            thread = Thread(target=self.update, args=([i, cap]), daemon=True)
-            print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
-            thread.start()
-        print('')  # newline
-        self.size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        # check for common shapes
-        s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
-        self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
-        if not self.rect:
-            print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
-
-    def update(self, index, cap):
-        # Read next stream frame in a daemon thread
-        n = 0
-        star_after_time = 0 # 记录开始的时间
         while cap.isOpened():
-            cap.grab()
-            _, self.imgs[index] = cap.retrieve()
+            ret, frame = cap.read()
+            # threading.Lock().acquire()
+            if len(input) == 20:
+                input.popleft()
+            else:
+                input.append(frame)
+            # threading.Lock().release()
+        print("实时读取线程退出！！！！")
+        input.clear()    # 读取进程结束时清空队列
+        cap.release()
 
-        print('save video in high FPS')
-    def __iter__(self):
-        self.count = -1
-        return self
-
-    def __next__(self):
-        self.count += 1
-        img0 = self.imgs.copy()
+    def read(self, input, device, cap):
+        index = 0
+        # fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         
-        # img_dict= {'right':img0[0][:,640:,...] }
-        
-        # img_dict['left'] =  img0[0][:,:640,...] 
-        # img0 = [i[:,:640,...] for i in img0]
-        if cv2.waitKey(1) == ord('q'):  # q to quit
-            cv2.destroyAllWindows()
-            raise StopIteration
+        out = cv2.VideoWriter('video_out_{}.mp4'.format(device), fourcc , 10.0, (1280, 720), True)
 
-        # Letterbox
-        img = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in img0]
+        start_time = time.time()
+        x = 1  # displays the frame rate every 1 second
+        counter = 0
+        print("开始逐帧读取")
+        while(True):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            if len(input) >=10:
+                im_new = input.pop()
+                index = index+1 
+                cv2.imshow("get{}".format(device), im_new)
+                self.imgs[device] = im_new
+                ######################视频保存####################
+                if index == 1: # 先复制当前时刻的帧和前面的帧
+                    frames=list(input)
+                frames.append(im_new) # 添加最新时刻的帧
+                
+                if index == 300: # 当前时刻的帧和前面的帧+最新50帧合成一个视频
+                    for frame in frames:
+                        out.write(frame)
+                    out.release()
+                    del frames[:]
+                    print("视频保存完成")
 
-        # Stack
-        img = np.stack(img, 0)
+                ######################视频保存####################
+                
+                im_new = cv2.cvtColor(im_new, cv2.COLOR_BGR2RGB)
+                #计算fps
+                counter += 1
+                if (time.time() - start_time) > x:
+    
+                    print("FPS: ", counter / (time.time() - start_time))
+                    counter = 0
+                    start_time = time.time()
+                
+                
+            elif len(input) < 10:
+                
+                continue
+        # out.release()
+        cv2.destroyAllWindows() 
+        print("获取图像线程退出!!!")
 
-        # Convert
-        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
-        img = np.ascontiguousarray(img)
 
-        return self.sources, img, img0  # TODO : 规范化输出，对于不同的设备。
 
-    def __len__(self):
-        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
-        
-class LoadStreams_OTA:  # read single OTA camera
-    def __init__(self, sources='streams.txt', img_size=640):
-        self.mode = 'images'
-        self.img_size = img_size
 
-        if os.path.isfile(sources):
-            with open(sources, 'r') as f:
-                sources = [x.strip() for x in f.read().splitlines() if len(x.strip())]
-        else:
-            sources = [sources]
+def _async_raise(tid, exctype):
+    """raises the exception, performs cleanup if needed"""
+    tid = ctypes.c_long(tid)
+    if not inspect.isclass(exctype):
+        exctype = type(exctype)
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, ctypes.py_object(exctype))
+    if res == 0:
+        raise ValueError("invalid thread id")
+    elif res != 1:
+        # """if it returns a number greater than one, you're in trouble,
+        # and you should call it again with exc=NULL to revert the effect"""
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, None)
+        raise SystemError("PyThreadState_SetAsyncExc failed")
+def stop_thread(thread):
+    _async_raise(thread.ident, SystemExit)
 
-        n = len(sources)
-        self.imgs = [None] * n
-        self.sources = sources
-        self.size = (1920,1080)
-        self.camera = WebCamera()
-        self.camera.prepare()
-        dict_ = self.camera.ger_frame()
-        self.imgs[0] = dict_['rgb_video']
 
-        # thread = Thread(target=self.update, args=([q]), daemon=True)
-        # check for common shapes
-        # thread.start()
-        s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
-        self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
-        if not self.rect:
-            print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
 
-    def update(self, q):
-        # Read next stream frame in a daemon thread
-        n = 0
-        name  = q.getName()
-        image = q.get()
-        data, w, h = image.getData(), image.getWidth(), image.getHeight()
-        # data, w, h = image.getData(), image.getWidth(), image.getHeight()
-        yuv = np.array(data).reshape((h * 3 // 2, w)).astype(np.uint8)
-        self.imgs[0] = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_NV12)
-        # time.sleep(0.01)  # wait time
 
-    def __iter__(self):
-        self.count = -1
-        return self
 
-    def __next__(self):
-        self.count += 1
-        # inRgb =self.q.get()
-        dict_ = self.camera.ger_frame()
-        self.imgs[0] = dict_['rgb_video']
-        img0 = self.imgs.copy()
-        # if cv2.waitKey(1) == ord('q'):  # q to quit
-        #     cv2.destroyAllWindows()
-        #     raise StopIteration
+ 
 
-        # Letterbox
-        img = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in img0]
 
-        # Stack
-        img = np.stack(img, 0)
-
-        # Convert
-        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
-        img = np.ascontiguousarray(img)
-
-        return self.sources, img, img0, dict_
-
-    def __len__(self):
-        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing

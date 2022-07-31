@@ -1,3 +1,4 @@
+from glob import glob
 import cv2
 from flask import Flask, render_template, Response
 import argparse
@@ -23,6 +24,7 @@ from utils.torch_utils import interval_happend, select_device, load_classifier, 
 """
 def thread_webfunction():
     app = Flask(__name__)
+    global stop_ 
 
 
     @app.route('/')
@@ -66,9 +68,6 @@ def thread_webfunction():
         if half:
             model.half()  # to FP16
 
-        # Second-stage classifier
-        classify = False
-
         # Get names and colors
         names = model.module.names if hasattr(model, 'module') else model.names
         colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
@@ -88,12 +87,9 @@ def thread_webfunction():
         # some values initailization
         seconds = 3
         save_video = False
-        FPS = dataset.fps
-        q = {'before': build_multi_queue(seconds , fps = FPS, names  = names_video  ), 'after':build_multi_queue(seconds = 3, fps = FPS, names  = names_video ) }
         T1 = time.perf_counter()
         T_fire = -1
         q_fire =  Queue_list(10) # 用于存储前10帧的火焰bbox
-        FPS = dataset.fps
         for path, img, im0s, vid_cap in dataset:
             img = torch.from_numpy(img).to(device)
             img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -165,13 +161,6 @@ def thread_webfunction():
                 image = cv2.imencode('.jpg', im0)[1].tobytes()
                 yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + image + b'\r\n')
-                if cv2.waitKey(1) == ord('q'):  # q to quit
-                    raise StopIteration
-                if cv2.waitKey(1) & 0xFF == ord('s'): # s to force save video
-                    dataset.event = True
-                    save_video = True
-                    # T_fire = time.perf_counter()
-                    print('sssssssssssssssss')
             q_fire.auto_put(largest_bbox) # 放每帧的bbox
 
             # 进入保存视频状态的条件：一个函数，一个变量
@@ -199,7 +188,6 @@ def thread_webfunction():
             if platform.system() == 'Darwin' and not opt.update:  # MacOS
                 os.system('open ' + save_path)
         
-        # save_multi_video(q, fourcc, FPS, size, names_video)
         time.sleep(2)
         print('Done. (%.3fs)' % (time.time() - t0))
         stop_ = True
@@ -208,6 +196,8 @@ def thread_webfunction():
     @app.route('/video_feed')
     def video_feed():
         return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
     app.run()
 
 

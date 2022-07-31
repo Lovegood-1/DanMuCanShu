@@ -83,7 +83,7 @@ if __name__=='__main__':
     R_Rvce1=np.row_stack((Rvce1,zer1))#旋转矩阵4*3
     R_tvec1=np.row_stack((tvec1,pingyi))#平移向量4*1
     R_M=np.concatenate((R_Rvce1,R_tvec1),axis=1)#外参4*4
-    if 1==2: 
+    if 1==1 : 
         img = cv2.imread('rec.png')
         nose_end_point2D, jacobian = cv2.projectPoints(np.array([(0.0, 0.0, 0.0)]), rvec1, tvec1,  config.cam_matrix_left, config.distortion_l)
         nose_end_point2D2, jacobian = cv2.projectPoints(np.array([(-0.13956, -0.6019, -0.23849)]), rvec1, tvec1,  config.cam_matrix_left, config.distortion_l)

@@ -14,3 +14,7 @@ video/
 *.json
 build/
 *.txt
+*.csv
+*.mat
+*.mpg
+*.zip
